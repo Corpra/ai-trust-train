@@ -45,7 +45,7 @@ npm install
 npm run dev
 ```
 
-Opens on <http://localhost:5173/en/>. Timings, trust values and colours live in `src/config.ts`; all text in `src/i18n.ts`.
+Opens on <http://localhost:5173/en/>. Node 20 or newer is enough for development. Timings, trust values and colours live in `src/config.ts`; all text in `src/i18n.ts`.
 
 ```bash
 npm run build     # type-check + production build into dist/
@@ -56,7 +56,7 @@ npm run preview   # serve the production build locally
 
 The site is a static Cloudflare Worker (assets only) served at <https://ai-trust-train.jernbergconsulting.com>. `wrangler.jsonc` holds the custom domain, so a deploy attaches it.
 
-Manual deploy from a laptop that is logged in with `wrangler login`:
+Manual deploy from a laptop that is logged in with `wrangler login` (wrangler needs Node 22 or newer, so `nvm use 22` first if your default is older):
 
 ```bash
 npm run deploy
