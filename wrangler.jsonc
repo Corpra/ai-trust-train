@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-trust-train",
+  "compatibility_date": "2025-12-01",
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "routes": [
+    { "pattern": "ai-trust-train.jernbergconsulting.com", "custom_domain": true }
+  ]
+}

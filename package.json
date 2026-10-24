@@ -1,0 +1,22 @@
+{
+  "name": "ai-trust-train",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Keeping the AI on the rails: an animated 3D explainer of how trust in an AI colleague grows.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "wrangler": "^4.86.0"
+  }
+}
