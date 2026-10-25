@@ -62,13 +62,7 @@ Manual deploy from a laptop that is logged in with `wrangler login` (wrangler ne
 npm run deploy
 ```
 
-Deploy on every push to `main` with Cloudflare Workers Builds (one-time setup in the dashboard):
-
-1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Import a repository**.
-2. Authorize the Cloudflare GitHub app for the `Corpra` account if asked, then pick `Corpra/ai-trust-train`.
-3. Project name `ai-trust-train` (must match the `name` in `wrangler.jsonc` so it takes over the existing Worker).
-4. Build command: `npm run build`. Deploy command: `npx wrangler deploy`. Leave the root directory empty.
-5. Save. Every push to `main` now builds and deploys; pull requests get preview URLs.
+Every push to `main` is built and deployed automatically by Cloudflare Workers Builds, and pull requests get preview URLs. The connection lives on the Worker itself: Cloudflare dashboard → **Workers & Pages** → `ai-trust-train` → **Settings** → **Builds**. To reconnect after a change of repository or account, press **Connect** there and pick `Corpra/ai-trust-train`, branch `main`, build command `npm run build`, deploy command `npx wrangler deploy`. The build uses the Node version in `.nvmrc`.
 
 ## Project layout
 
