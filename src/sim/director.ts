@@ -458,7 +458,7 @@ export class Director implements Controls {
     train.speed = 0;
     train.s = h.s;
     train.derail = { ...h.pose };
-    world.fx.burstDust(train.worldPos(this.v1), h.id === 'gap' ? 14 : 12, 1.2);
+    world.fx.burstDust(train.worldPos(this.v1), h.id === 'gap' ? 9 : 8, 1.0);
     yield step(0.45 * MOTION + 0.01, (t) => {
       train.derailAmount = ease.out(t);
     });
@@ -490,7 +490,7 @@ export class Director implements Controls {
       train.s = s0 + h.clear * k;
     });
     train.derailAmount = 0;
-    world.fx.burstDust(train.worldPos(this.v1), 6, 0.6);
+    world.fx.burstDust(train.worldPos(this.v1), 4, 0.5);
     human.pose = 'stand';
     yield wait(0.25);
     if (install) {
@@ -511,7 +511,7 @@ export class Director implements Controls {
     train.speed = 0;
     train.derail = { ...world.byId.switch.pose };
     tweens.to(train, { derailAmount: 1 }, 0.3, ease.out);
-    world.fx.burstDust(train.worldPos(this.v1), 8, 0.8);
+    world.fx.burstDust(train.worldPos(this.v1), 5, 0.7);
   }
 
   private *fixFork(h: Hazard): Seq {

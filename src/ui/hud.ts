@@ -81,15 +81,15 @@ export class Hud {
     const bg = document.createElementNS(ns, 'path');
     bg.setAttribute('d', 'M10 62 A50 50 0 0 1 110 62');
     bg.setAttribute('fill', 'none');
-    bg.setAttribute('stroke', 'rgba(255,255,255,0.12)');
-    bg.setAttribute('stroke-width', '11');
+    bg.setAttribute('stroke', 'rgba(255,255,255,0.1)');
+    bg.setAttribute('stroke-width', '6');
     bg.setAttribute('stroke-linecap', 'round');
     this.arc = document.createElementNS(ns, 'path');
     this.arc.setAttribute('class', 'arc');
     this.arc.setAttribute('d', 'M10 62 A50 50 0 0 1 110 62');
     this.arc.setAttribute('fill', 'none');
     this.arc.setAttribute('stroke', '#e35b5b');
-    this.arc.setAttribute('stroke-width', '11');
+    this.arc.setAttribute('stroke-width', '6');
     this.arc.setAttribute('stroke-linecap', 'round');
     this.arc.setAttribute('stroke-dasharray', `${ARC_LEN} ${ARC_LEN}`);
     this.arc.setAttribute('stroke-dashoffset', `${ARC_LEN}`);
@@ -101,13 +101,13 @@ export class Hud {
     line.setAttribute('x2', '20');
     line.setAttribute('y2', '62');
     line.setAttribute('stroke', '#f4f4f6');
-    line.setAttribute('stroke-width', '3.5');
+    line.setAttribute('stroke-width', '2');
     line.setAttribute('stroke-linecap', 'round');
     this.needle.append(line);
     const hub = document.createElementNS(ns, 'circle');
     hub.setAttribute('cx', '60');
     hub.setAttribute('cy', '62');
-    hub.setAttribute('r', '5');
+    hub.setAttribute('r', '3');
     hub.setAttribute('fill', '#f4f4f6');
     svg.append(bg, this.arc, this.needle, hub);
     const label = el('div', 'label', t.trust);
@@ -162,10 +162,9 @@ export class Hud {
   private setSplashText(n: number): void {
     const p = this.t.phases[n];
     const numbered = n > 0 && n < PHASE_COUNT - 1;
-    this.splashNum.textContent = numbered ? `${this.t.phase} ${n}` : p.title;
-    this.splashNum.classList.toggle('title', !numbered);
-    this.splashSub.textContent = numbered ? p.title : '';
-    this.splashSub.style.display = numbered ? '' : 'none';
+    this.splashNum.textContent = numbered ? `${this.t.phase} ${n}` : '';
+    this.splashNum.classList.toggle('hidden', !numbered);
+    this.splashSub.textContent = p.title;
     this.splashHint.classList.toggle('hidden', n !== 0);
   }
 

@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { COLORS } from '../config';
 import { Fx, pop, snapShow } from '../fx';
-import { box, cyl, mat, metal, sphere, wood, Z } from '../util3d';
+import { box, cyl, mat, metal, sphere, Z } from '../util3d';
 import { ease, tweens } from '../tween';
 import {
   frameAt,
-  makeFence,
   makeMain,
   makeRibbon,
   makeSpurCurve,
@@ -119,13 +118,13 @@ export class World {
     // Destination slab at B, alongside the last stretch on the right
     this.stopS = L - 2.2;
     const end = frameAt(this.main, this.stopS / L, newFrame());
-    const slabTop = 0.3;
+    const slabTop = 0.18;
     const slab = box(2.4, slabTop, 7.5, COLORS.slab, mat(COLORS.slab, { roughness: 0.95, emissive: 0x0d0e11 }));
     slab.position.copy(end.pos).addScaledVector(end.right, 2.3).addScaledVector(end.tan, -1.2);
     slab.position.y = slabTop / 2;
     slab.quaternion.setFromUnitVectors(Z, end.tan);
     this.group.add(slab);
-    const edge = box(0.08, 0.03, 7.5, COLORS.slabEdge, mat(COLORS.slabEdge, { emissive: 0xffffff, emissiveIntensity: 0.6 }));
+    const edge = box(0.05, 0.02, 7.5, COLORS.slabEdge, mat(COLORS.slabEdge, { emissive: 0xffffff, emissiveIntensity: 0.6 }));
     edge.position.copy(end.pos).addScaledVector(end.right, 1.14).addScaledVector(end.tan, -1.2);
     edge.position.y = slabTop + 0.015;
     edge.quaternion.copy(slab.quaternion);
@@ -160,7 +159,7 @@ export class World {
     bump.guard = this.makeBumpGuard(bump.guardMat);
     // Curve guardrail: fence on the outside (left) of the bend
     curve.guardMat = guardMat();
-    curve.guard = makeFence(this.main, { u0: nearestU(this.main, 0.6, -50), u1: nearestU(this.main, 14.5, -63.6) }, -1, 1.45, 0.8, curve.guardMat, 0.9);
+    curve.guard = this.makeGlowLine({ u0: nearestU(this.main, 0.6, -50), u1: nearestU(this.main, 14.5, -63.6) }, -1, 1.4, 0.55, curve.guardMat);
     // Gap guardrail: a bridge plate with rail stubs
     gap.guardMat = guardMat();
     gap.guard = this.makeBridge(gapCenterU, gapHalf * 2 * L, gap.guardMat);
@@ -177,12 +176,12 @@ export class World {
 
   private makeBuffer(f: Frame): THREE.Group {
     const g = new THREE.Group();
-    const beam = box(1.6, 0.3, 0.2, COLORS.wood, wood(COLORS.woodDark));
-    beam.position.y = 0.55;
+    const beam = box(1.5, 0.18, 0.12, COLORS.metalDark, metal(COLORS.metalDark));
+    beam.position.y = 0.5;
     g.add(beam);
-    for (const x of [-0.55, 0.55]) {
-      const post = box(0.14, 0.7, 0.14, COLORS.metalDark, metal(COLORS.metalDark));
-      post.position.set(x, 0.35, -0.2);
+    for (const x of [-0.5, 0.5]) {
+      const post = box(0.07, 0.6, 0.07, COLORS.metalDark, metal(COLORS.metalDark));
+      post.position.set(x, 0.3, -0.15);
       g.add(post);
     }
     g.position.copy(f.pos).addScaledVector(f.tan, 0.3);
@@ -192,15 +191,15 @@ export class World {
 
   private makeLever(): THREE.Group {
     const g = new THREE.Group();
-    const base = cyl(0.16, 0.2, 0.12, COLORS.metalDark, 16, metal(COLORS.metalDark));
-    base.position.y = 0.06;
+    const base = cyl(0.11, 0.13, 0.05, COLORS.metalDark, 16, metal(COLORS.metalDark));
+    base.position.y = 0.025;
     g.add(base);
     const arm = new THREE.Group();
     arm.name = 'arm';
-    const stick = cyl(0.045, 0.05, 1.0, COLORS.lever, 12, mat(COLORS.lever, { emissive: 0x666666 }));
+    const stick = cyl(0.022, 0.026, 1.0, COLORS.lever, 12, mat(COLORS.lever, { emissive: 0x777777 }));
     stick.position.y = 0.5;
     arm.add(stick);
-    const knob = sphere(0.1, COLORS.lever, 16, mat(COLORS.lever, { emissive: 0x666666 }));
+    const knob = sphere(0.06, COLORS.lever, 16, mat(COLORS.lever, { emissive: 0x777777 }));
     knob.position.y = 1.0;
     arm.add(knob);
     arm.position.y = 0.12;
@@ -212,8 +211,8 @@ export class World {
   private makeBumpGuard(m: THREE.Material): THREE.Group {
     const g = new THREE.Group();
     const f = this.f;
-    const n = Math.round(((this.bumpZone.u1 - this.bumpZone.u0) * this.mainLen) / 0.7);
-    const geo = new THREE.BoxGeometry(2.0, 0.12, 0.32);
+    const n = Math.round(((this.bumpZone.u1 - this.bumpZone.u0) * this.mainLen) / 0.9);
+    const geo = new THREE.BoxGeometry(1.5, 0.04, 0.1);
     const inst = new THREE.InstancedMesh(geo, m, n);
     const d = new THREE.Object3D();
     for (let i = 0; i < n; i++) {
@@ -228,15 +227,39 @@ export class World {
     return g;
   }
 
+  /** A thin luminous rail on slim posts alongside a stretch of track. */
+  private makeGlowLine(zone: Zone, side: 1 | -1, dist: number, height: number, m: THREE.Material): THREE.Group {
+    const g = new THREE.Group();
+    const f = this.f;
+    const L = this.mainLen;
+    const n = Math.max(8, Math.round(((zone.u1 - zone.u0) * L) / 0.5));
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= n; i++) {
+      frameAt(this.main, zone.u0 + ((zone.u1 - zone.u0) * i) / n, f);
+      pts.push(f.pos.clone().addScaledVector(f.right, side * dist).setY(height));
+    }
+    const path = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(path, n * 2, 0.03, 10, false), m);
+    g.add(tube);
+    const postGeo = new THREE.CylinderGeometry(0.012, 0.012, height, 8);
+    const every = Math.max(1, Math.round(2.4 / (((zone.u1 - zone.u0) * L) / n)));
+    for (let i = 0; i <= n; i += every) {
+      const post = new THREE.Mesh(postGeo, m);
+      post.position.copy(pts[i]).setY(height / 2);
+      g.add(post);
+    }
+    return g;
+  }
+
   private makeBridge(uCenter: number, len: number, m: THREE.Material): THREE.Group {
     const g = new THREE.Group();
     const f = frameAt(this.main, uCenter, newFrame());
-    const plate = box(1.7, 0.12, len + 1.4, COLORS.guard, m);
+    const plate = box(1.5, 0.05, len + 1.4, COLORS.guard, m);
     plate.position.y = 0.08;
     g.add(plate);
     for (const side of [-0.5, 0.5]) {
-      const stub = box(0.14, 0.14, len + 1.4, COLORS.guard, m);
-      stub.position.set(side, 0.06 + 0.07 + 0.07, 0);
+      const stub = box(0.08, 0.1, len + 1.4, COLORS.guard, m);
+      stub.position.set(side, 0.11 + 0.05, 0);
       g.add(stub);
     }
     g.position.copy(f.pos);

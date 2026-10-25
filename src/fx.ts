@@ -35,12 +35,16 @@ interface Particle {
 
 function makeVerdictTexture(ok: boolean): THREE.CanvasTexture {
   return canvasTexture(128, (g) => {
-    g.fillStyle = ok ? '#3fb66b' : '#e35b5b';
+    g.fillStyle = 'rgba(10,10,12,0.85)';
     g.beginPath();
-    g.arc(64, 64, 58, 0, Math.PI * 2);
+    g.arc(64, 64, 56, 0, Math.PI * 2);
     g.fill();
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = 14;
+    g.strokeStyle = ok ? '#3fb66b' : '#e35b5b';
+    g.lineWidth = 5;
+    g.beginPath();
+    g.arc(64, 64, 56, 0, Math.PI * 2);
+    g.stroke();
+    g.lineWidth = 9;
     g.lineCap = 'round';
     g.lineJoin = 'round';
     g.beginPath();
@@ -77,12 +81,12 @@ export class Fx {
   private readonly streaks: Streak[] = [];
   private readonly streakMat: THREE.MeshBasicMaterial;
 
-  private readonly dustGeo = new THREE.SphereGeometry(0.22, 10, 8);
-  private readonly sweatGeo = new THREE.SphereGeometry(0.09, 10, 8);
-  private readonly sparkGeo = new THREE.SphereGeometry(0.06, 6, 5);
+  private readonly dustGeo = new THREE.SphereGeometry(0.13, 10, 8);
+  private readonly sweatGeo = new THREE.SphereGeometry(0.055, 10, 8);
+  private readonly sparkGeo = new THREE.SphereGeometry(0.04, 6, 5);
   private readonly ringGeo = new THREE.RingGeometry(0.5, 0.78, 40);
-  private readonly dustMat = new THREE.MeshStandardMaterial({ color: COLORS.dust, roughness: 1, emissive: 0x201d1a });
-  private readonly sweatMat = new THREE.MeshStandardMaterial({ color: COLORS.sweat, roughness: 0.3, emissive: 0x1a4466 });
+  private readonly dustMat = new THREE.MeshStandardMaterial({ color: COLORS.dust, roughness: 1, emissive: 0x15130f, transparent: true, opacity: 0.7 });
+  private readonly sweatMat = new THREE.MeshStandardMaterial({ color: COLORS.sweat, roughness: 0.3, emissive: 0x3a5570 });
   private readonly sparkMat = new THREE.MeshBasicMaterial({ color: COLORS.spark });
   private readonly okTex = makeVerdictTexture(true);
   private readonly badTex = makeVerdictTexture(false);
@@ -225,7 +229,7 @@ export class Fx {
       v.life += dt;
       v.s.position.y += dt * 0.5;
       const k = Math.min(1, v.life / 0.3);
-      v.s.scale.setScalar(Math.max(0.001, 1.5 * ease.outBack(k)));
+      v.s.scale.setScalar(Math.max(0.001, 1.15 * ease.outBack(k)));
       v.mat.opacity = v.life < 1.6 ? 1 : Math.max(0, 1 - (v.life - 1.6) / 0.4);
       if (v.life >= 2.0) {
         this.group.remove(v.s);

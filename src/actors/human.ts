@@ -58,7 +58,7 @@ const LA = 0.3; // lower arm
 const HIPS_Y = UL + LL;
 const TORSO = 0.76;
 const HEAD_R = 0.27;
-const SCALE = 0.78;
+const SCALE = 0.7;
 
 function makeClipboard(): THREE.Group {
   const g = new THREE.Group();
@@ -112,7 +112,7 @@ export class Human {
   static readonly HEIGHT = (HIPS_Y + TORSO + HEAD_R * 1.6) * SCALE;
 
   constructor() {
-    const skin = mat(COLORS.human, { roughness: 0.55, metalness: 0, emissive: 0x1c1c1e });
+    const skin = mat(COLORS.human, { roughness: 0.85, metalness: 0, emissive: 0x161617 });
     const g = this.group;
     this.hips.position.y = HIPS_Y;
     g.add(this.hips);
@@ -123,11 +123,11 @@ export class Human {
       [this.hipR, this.kneeR, -0.12],
     ] as const) {
       hip.position.set(x, 0, 0);
-      const upper = capsule(0.095, UL + 0.1, skin);
+      const upper = capsule(0.085, UL + 0.1, skin);
       upper.position.y = -UL / 2;
       hip.add(upper);
       knee.position.y = -UL;
-      const lower = capsule(0.085, LL + 0.08, skin);
+      const lower = capsule(0.075, LL + 0.08, skin);
       lower.position.y = -LL / 2;
       knee.add(lower);
       hip.add(knee);
@@ -151,11 +151,11 @@ export class Human {
       [this.shR, this.elR, this.handR, -0.21],
     ] as const) {
       sh.position.set(x, TORSO - 0.14, 0);
-      const upper = capsule(0.075, UA + 0.08, skin);
+      const upper = capsule(0.066, UA + 0.08, skin);
       upper.position.y = -UA / 2;
       sh.add(upper);
       el.position.y = -UA;
-      const lower = capsule(0.07, LA + 0.08, skin);
+      const lower = capsule(0.06, LA + 0.08, skin);
       lower.position.y = -LA / 2;
       el.add(lower);
       hand.position.y = -LA;

@@ -3,7 +3,7 @@ import { COLORS } from '../config';
 import { mat, rng, Z } from '../util3d';
 
 export const GAUGE = 1.0;
-export const RAIL_H = 0.14;
+export const RAIL_H = 0.1;
 /** Height of the rail top above ground: where wheels sit. */
 export const RAIL_TOP = 0.06 + RAIL_H;
 
@@ -116,7 +116,7 @@ export class RailLine {
     readonly curve: THREE.Curve<THREE.Vector3>,
     seed = 1,
     segLen = 0.5,
-    sleeperEvery = 0.7,
+    sleeperEvery = 0.9,
   ) {
     this.length = curve.getLength();
     const r = rng(seed);
@@ -126,10 +126,10 @@ export class RailLine {
     const nSl = Math.max(1, Math.round(this.length / sleeperEvery));
     for (let i = 0; i < nSl; i++) this.slp.push({ u: (i + 0.5) / nSl, n1: r() * 2 - 1 });
 
-    const railMat = mat(COLORS.rail, { roughness: 0.4, metalness: 0.55, emissive: 0x1c1d21 });
-    const sleeperMat = mat(COLORS.sleeper, { roughness: 0.95, emissive: 0x0b0b0d });
-    this.rails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.13, RAIL_H, 1), railMat, nSeg * 2);
-    this.sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(1.9, 0.1, 0.3), sleeperMat, nSl);
+    const railMat = mat(COLORS.rail, { roughness: 0.45, metalness: 0.4, emissive: 0x202227 });
+    const sleeperMat = mat(COLORS.sleeper, { roughness: 0.95, emissive: 0x08080a });
+    this.rails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, RAIL_H, 1), railMat, nSeg * 2);
+    this.sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.06, 0.2), sleeperMat, nSl);
     this.group.add(this.sleepers, this.rails);
     this.apply();
   }
