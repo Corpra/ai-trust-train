@@ -194,26 +194,36 @@ export class RailLine {
   }
 }
 
-/** A flat ribbon following a stretch of a curve. */
+/**
+ * A flat ribbon following a stretch of a curve. `width` may vary along the curve; uvs run 0..1
+ * across and along the length in units of `tile` (world units per texture repeat).
+ */
 export function makeRibbon(
   curve: THREE.Curve<THREE.Vector3>,
-  width: number,
+  width: number | ((t: number) => number),
   y: number,
   material: THREE.Material,
   n = 400,
   u0 = 0,
   u1 = 1,
+  tile = 0,
 ): THREE.Mesh {
   const f = newFrame();
   const pos: number[] = [];
+  const uv: number[] = [];
   const idx: number[] = [];
+  const L = curve.getLength() * (u1 - u0);
   for (let i = 0; i <= n; i++) {
-    frameAt(curve, u0 + ((u1 - u0) * i) / n, f);
-    const lx = f.pos.x - f.right.x * (width / 2);
-    const lz = f.pos.z - f.right.z * (width / 2);
-    const rx = f.pos.x + f.right.x * (width / 2);
-    const rz = f.pos.z + f.right.z * (width / 2);
+    const t = i / n;
+    frameAt(curve, u0 + (u1 - u0) * t, f);
+    const w = typeof width === 'number' ? width : width(t);
+    const lx = f.pos.x - f.right.x * (w / 2);
+    const lz = f.pos.z - f.right.z * (w / 2);
+    const rx = f.pos.x + f.right.x * (w / 2);
+    const rz = f.pos.z + f.right.z * (w / 2);
     pos.push(lx, y, lz, rx, y, rz);
+    const v = tile > 0 ? (t * L) / tile : t;
+    uv.push(0, v, 1, v);
   }
   for (let i = 0; i < n; i++) {
     const a = i * 2;
@@ -224,6 +234,7 @@ export function makeRibbon(
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   return new THREE.Mesh(g, material);

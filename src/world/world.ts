@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { COLORS } from '../config';
 import { Fx, pop, snapShow } from '../fx';
-import { box, cyl, mat, metal, sphere, Z } from '../util3d';
+import { box, canvasTexture, cyl, mat, metal, rng, sphere, Z } from '../util3d';
 import { ease, tweens } from '../tween';
 import {
   frameAt,
@@ -43,6 +43,42 @@ export interface Hazard {
 
 const GUARD_BASE = 0.55;
 
+/** Soft brown blotches, feathered to nothing at the sides, tiling along the track. */
+function makeMudTexture(): THREE.CanvasTexture {
+  const tex = canvasTexture(512, (g, s) => {
+    const r = rng(5);
+    g.clearRect(0, 0, s, s);
+    for (let i = 0; i < 260; i++) {
+      const x = r() * s;
+      const y = r() * s;
+      const rad = 14 + r() * 70;
+      const a = 0.05 + r() * 0.16;
+      const shade = 150 + Math.floor(r() * 60);
+      for (const dy of [-s, 0, s]) {
+        const grad = g.createRadialGradient(x, y + dy, 0, x, y + dy, rad);
+        grad.addColorStop(0, `rgba(${shade}, ${Math.floor(shade * 0.72)}, ${Math.floor(shade * 0.5)}, ${a})`);
+        grad.addColorStop(1, `rgba(${shade}, ${Math.floor(shade * 0.72)}, ${Math.floor(shade * 0.5)}, 0)`);
+        g.fillStyle = grad;
+        g.beginPath();
+        g.arc(x, y + dy, rad, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    // feather the sides so the path has no hard edge
+    const edge = g.createLinearGradient(0, 0, s, 0);
+    edge.addColorStop(0, 'rgba(0,0,0,0)');
+    edge.addColorStop(0.2, 'rgba(0,0,0,1)');
+    edge.addColorStop(0.8, 'rgba(0,0,0,1)');
+    edge.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalCompositeOperation = 'destination-in';
+    g.fillStyle = edge;
+    g.fillRect(0, 0, s, s);
+  });
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 export class World {
   readonly group = new THREE.Group();
   readonly fx = new Fx();
@@ -79,9 +115,27 @@ export class World {
     this.mainLen = this.main.getLength();
     const L = this.mainLen;
 
-    // Mud path (the "road" of phase 1): barely-there brown under the rails.
-    const mudMat = new THREE.MeshStandardMaterial({ color: COLORS.mud, roughness: 1, transparent: true, opacity: 0.3, depthWrite: false, emissive: 0x1a120b });
-    this.group.add(makeRibbon(this.main, 2.6, 0.012, mudMat));
+    // Mud path (the "road" of phase 1): a faint, blotchy brown wash with soft, wobbly edges.
+    const mudTex = makeMudTexture();
+    const mudMat = new THREE.MeshStandardMaterial({
+      color: 0x6a4d38,
+      map: mudTex,
+      roughness: 1,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+      emissive: 0x0e0906,
+    });
+    const r = rng(11);
+    const wobble = Array.from({ length: 64 }, () => 0.6 + r() * 0.8);
+    const mudWidth = (t: number): number => {
+      const k = t * (wobble.length - 1);
+      const i = Math.floor(k);
+      const a = wobble[i];
+      const b = wobble[Math.min(wobble.length - 1, i + 1)];
+      return 3.4 + (a + (b - a) * (k - i)) * 1.1;
+    };
+    this.group.add(makeRibbon(this.main, mudWidth, 0.012, mudMat, 600, 0, 1, 7));
 
     this.rails = new RailLine(this.main, 7);
     this.group.add(this.rails.group);
@@ -103,7 +157,7 @@ export class World {
     this.spurLen = this.spurCurve.getLength();
     this.spurRails = new RailLine(this.spurCurve, 3);
     this.spurGroup.add(this.spurRails.group);
-    this.spurGroup.add(makeRibbon(this.spurCurve, 2.1, 0.011, mudMat, 120, 0.08, 1));
+    this.spurGroup.add(makeRibbon(this.spurCurve, 3.0, 0.011, mudMat, 120, 0.08, 1, 7));
     const spurEnd = frameAt(this.spurCurve, 1, newFrame());
     this.spurGroup.add(this.makeBuffer(spurEnd));
     this.group.add(this.spurGroup);
