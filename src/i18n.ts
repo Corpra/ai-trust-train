@@ -1,36 +1,39 @@
 import type { Lang } from './config';
 
 export interface PhaseText {
+  /** Splash subtitle and overlay heading (title text for phases 0 and 8). */
   title: string;
-  /** Phase 0 uses a single italic subtitle instead of bullets. */
   bullets: string[];
 }
 
 export interface Texts {
   phases: PhaseText[];
+  /** "Phase" as in "Phase 3" on the splash. */
+  phase: string;
   trust: string;
-  cleanLaps: string;
   prev: string;
   next: string;
+  replay: string;
   hint: string;
   footer: string;
 }
 
 export const TEXTS: Record<Lang, Texts> = {
   en: {
+    phase: 'Phase',
     trust: 'Trust',
-    cleanLaps: 'clean laps',
     prev: '‹ Prev',
     next: 'Next ›',
+    replay: '↻ Replay',
     hint: '→ to begin',
     footer: 'Mathias Jernberg',
     phases: [
       {
         title: 'Keeping the AI on the rails',
-        bullets: ['How trust in an AI colleague grows, one lap at a time'],
+        bullets: [],
       },
       {
-        title: 'Chatting',
+        title: 'Chat bot',
         bullets: [
           'You type, it answers, you copy the result over by hand',
           'Nothing moves unless you push',
@@ -38,7 +41,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Give it your codebase',
+        title: 'Adding the codebase',
         bullets: [
           'The desktop app can read and change your project itself',
           "You're the driver now, not the engine",
@@ -46,7 +49,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Give it your context',
+        title: 'Adding ADO/Confluence/Jira',
         bullets: [
           'Connect your backlog, wiki and requirements',
           "It knows what you're building and why",
@@ -54,7 +57,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Fix the cause, not the crash',
+        title: 'Iterative guardrails',
         bullets: [
           'Every derailment becomes a rule: a line in CLAUDE.md, a lint rule, a test',
           'The same mistake never happens twice',
@@ -62,7 +65,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Turn up the speed',
+        title: 'Increase speed',
         bullets: [
           'Fewer crashes means bigger tasks and less checking',
           'New speed, new ways to fail',
@@ -70,18 +73,18 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Nothing goes wrong anymore',
+        title: 'Smooth ride',
         bullets: [
-          'Lap after lap without a derailment',
+          'Trip after trip without a derailment',
           "You watch, but don't touch",
           'Time to step out of the cab',
         ],
       },
       {
-        title: 'Set the destination',
+        title: 'Self-driving train',
         bullets: [
           'You describe the task and let it go',
-          'It comes back with the work done',
+          'It arrives with the work done',
           'You check the cargo before it ships',
         ],
       },
@@ -96,19 +99,20 @@ export const TEXTS: Record<Lang, Texts> = {
     ],
   },
   sv: {
+    phase: 'Fas',
     trust: 'Tillit',
-    cleanLaps: 'felfria varv',
     prev: '‹ Föregående',
     next: 'Nästa ›',
+    replay: '↻ Spela igen',
     hint: '→ för att börja',
     footer: 'Mathias Jernberg',
     phases: [
       {
         title: 'Håll AI:n på spåret',
-        bullets: ['Hur tilliten till en AI-kollega växer, ett varv i taget'],
+        bullets: [],
       },
       {
-        title: 'Chatta',
+        title: 'Chat bot',
         bullets: [
           'Du skriver, den svarar, du kopierar över resultatet för hand',
           'Inget rör sig om du inte knuffar',
@@ -116,7 +120,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Ge den din kodbas',
+        title: 'Lägg till kodbasen',
         bullets: [
           'Skrivbordsappen kan läsa och ändra i projektet själv',
           'Nu är du föraren, inte motorn',
@@ -124,7 +128,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Ge den din kontext',
+        title: 'Lägg till ADO/Confluence/Jira',
         bullets: [
           'Koppla på backlog, wiki och krav',
           'Den vet vad ni bygger och varför',
@@ -132,7 +136,7 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Åtgärda orsaken, inte kraschen',
+        title: 'Iterativa skyddsräcken',
         bullets: [
           'Varje urspårning blir en regel: en rad i CLAUDE.md, en lintregel, ett test',
           'Samma misstag händer aldrig två gånger',
@@ -148,18 +152,18 @@ export const TEXTS: Record<Lang, Texts> = {
         ],
       },
       {
-        title: 'Inget går fel längre',
+        title: 'Går som tåget',
         bullets: [
-          'Varv efter varv utan urspårning',
+          'Resa efter resa utan urspårning',
           'Du tittar, men rör inget',
           'Dags att kliva ur hytten',
         ],
       },
       {
-        title: 'Ange destinationen',
+        title: 'Självkörande',
         bullets: [
           'Du beskriver uppgiften och släpper iväg den',
-          'Den kommer tillbaka med jobbet gjort',
+          'Den kommer fram med jobbet gjort',
           'Du kontrollerar lasten innan den skickas vidare',
         ],
       },

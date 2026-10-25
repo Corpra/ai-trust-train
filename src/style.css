@@ -1,13 +1,15 @@
 :root {
-  --card: rgba(255, 255, 255, 0.93);
-  --ink: #2b3440;
-  --muted: #68727f;
-  --accent: #2f9ba8;
-  --accent-soft: rgba(47, 155, 168, 0.14);
+  --bg: #0a0a0c;
+  --ink: #f4f4f6;
+  --muted: #9a9ca4;
+  --accent: #d97757;
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-line: rgba(255, 255, 255, 0.12);
   --guard: #ffcc33;
   --ok: #3fb66b;
   --bad: #e35b5b;
-  --shadow: 0 10px 30px rgba(40, 60, 80, 0.16);
+  --pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --exit: cubic-bezier(0.55, 0, 1, 0.45);
 }
 
 * {
@@ -21,7 +23,7 @@ body {
   overflow: hidden;
   font-family: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: var(--ink);
-  background: linear-gradient(180deg, #c9e4f6 0%, #e4f2fa 50%, #eef5e6 100%);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -47,74 +49,64 @@ canvas {
   pointer-events: auto;
 }
 
-/* Phase card */
-.card {
+/* Right-hand overlay: a dark column with heading and bullets */
+.overlay {
   position: absolute;
-  left: 24px;
-  bottom: 24px;
-  max-width: min(540px, calc(100vw - 48px));
-  background: var(--card);
-  border-radius: 20px;
-  padding: 18px 24px 16px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(38vw, 700px);
+  padding: 4.5vh 3vw 0 3.6vw;
+  background: linear-gradient(90deg, rgba(10, 10, 12, 0) 0%, rgba(10, 10, 12, 0.78) 16%, rgba(10, 10, 12, 0.92) 100%);
+  pointer-events: none;
   transition: opacity 0.35s ease, transform 0.35s ease;
 }
 
-.card.hidden {
+.overlay.hidden {
   opacity: 0;
-  transform: translateY(12px);
-  pointer-events: none;
+  transform: translateX(16px);
 }
 
-.card h1 {
-  margin: 0 0 8px;
-  font-size: 27px;
+.overlay h2 {
+  margin: 0 0 0.45em;
+  font-size: clamp(24px, 2.5vw, 42px);
   font-weight: 800;
   letter-spacing: -0.01em;
-  line-height: 1.15;
+  line-height: 1.12;
 }
 
-.card .sub {
+.overlay ul {
   margin: 0;
-  font-style: italic;
-  font-weight: 500;
+  padding-left: 1.05em;
+  font-size: clamp(18px, 1.72vw, 30px);
+  line-height: 1.32;
+  font-weight: 600;
+  color: #e6e6ea;
+}
+
+.overlay li {
+  margin: 0.5em 0;
+}
+
+.overlay li::marker {
   color: var(--muted);
-  font-size: 18px;
 }
 
-.card ul {
-  margin: 0;
-  padding-left: 22px;
-  font-size: 17px;
-  line-height: 1.4;
-  font-weight: 500;
-}
-
-.card li {
-  margin: 5px 0;
-}
-
-.card li::marker {
-  color: var(--accent);
-}
-
-.card .footer {
-  margin: 12px 0 0;
-  font-size: 13px;
+.overlay .footer {
+  margin: 1.4em 0 0;
+  font-size: clamp(12px, 0.95vw, 16px);
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
   display: none;
 }
 
-.card.with-footer .footer {
+.overlay.with-footer .footer {
   display: block;
 }
 
-/* Navigation */
+/* Navigation pill */
 .nav {
   position: absolute;
   left: 50%;
@@ -122,13 +114,13 @@ canvas {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: var(--card);
+  gap: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
   border-radius: 999px;
-  padding: 8px 10px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  padding: 7px 10px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .nav button {
@@ -142,17 +134,38 @@ canvas {
   border-radius: 999px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.2s;
+  transition: background 0.2s, opacity 0.25s, transform 0.25s;
 }
 
 .nav button:hover {
-  background: var(--accent-soft);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .nav button:disabled {
   opacity: 0.3;
   cursor: default;
   background: transparent;
+}
+
+.nav .replay {
+  color: var(--ink);
+  display: none;
+}
+
+.nav.done .replay {
+  display: inline-block;
+  animation: popIn 0.4s var(--pop);
+}
+
+@keyframes popIn {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 .dots {
@@ -165,18 +178,18 @@ canvas {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #cbd5de;
+  background: rgba(255, 255, 255, 0.22);
   display: block;
   transition: background 0.3s, transform 0.3s;
   cursor: pointer;
 }
 
 .dots i.done {
-  background: #93c9d0;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .dots i.on {
-  background: var(--accent);
+  background: #ffffff;
   transform: scale(1.35);
 }
 
@@ -186,13 +199,13 @@ canvas {
   right: 24px;
   bottom: 24px;
   width: 156px;
-  background: var(--card);
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
   border-radius: 20px;
   padding: 12px 12px 10px;
   text-align: center;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .dial svg {
@@ -200,46 +213,126 @@ canvas {
   display: block;
 }
 
+.dial .needle {
+  transition: transform 0.9s cubic-bezier(0.34, 1.3, 0.64, 1);
+  transform-origin: 60px 62px;
+  transform-box: view-box;
+}
+
+.dial .arc {
+  transition: stroke-dashoffset 0.9s cubic-bezier(0.34, 1.3, 0.64, 1), stroke 0.9s;
+}
+
 .dial .label {
   font-weight: 800;
   font-size: 13px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-top: -4px;
+  margin-top: -2px;
 }
 
-.dial .laps {
-  font-size: 13px;
-  color: var(--muted);
-  margin-top: 4px;
-  min-height: 18px;
-  font-weight: 700;
+/* Splash panel */
+.splash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em;
+  background: linear-gradient(180deg, #e3b93c 0%, #6a561a 26%, #1a170c 54%, var(--bg) 74%);
+  transform: translateX(-104%);
+  cursor: pointer;
+  user-select: none;
+}
+
+.splash.in {
+  transform: translateX(0);
+  transition: transform 0.38s var(--pop);
+}
+
+.splash.in.still {
+  transition: none;
+}
+
+.splash.out {
+  transform: translateX(104%);
+  transition: transform 0.3s var(--exit);
+}
+
+.splash .num,
+.splash .sub,
+.splash .hint {
   opacity: 0;
-  transition: opacity 0.4s;
+  transform: scale(0.86);
 }
 
-.dial .laps.on {
+.splash.in .num,
+.splash.in .sub,
+.splash.in .hint {
   opacity: 1;
+  transform: none;
+  transition: transform 0.5s var(--pop), opacity 0.3s ease;
 }
 
-/* Hint on the title screen */
-.hint {
-  position: absolute;
-  left: 50%;
-  bottom: 86px;
-  transform: translateX(-50%);
+.splash.in .num {
+  transition-delay: 0.1s;
+}
+
+.splash.in .sub {
+  transition-delay: 0.2s;
+}
+
+.splash.in .hint {
+  transition-delay: 0.45s;
+}
+
+.splash.in.still .num,
+.splash.in.still .sub,
+.splash.in.still .hint {
+  transition: none;
+}
+
+.splash.in.swap .num,
+.splash.in.swap .sub,
+.splash.in.swap .hint {
+  opacity: 0;
+  transform: scale(0.88);
+  transition: transform 0.18s ease-in, opacity 0.15s ease-in;
+}
+
+.splash .num {
+  font-size: clamp(44px, 9vw, 150px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  text-align: center;
+}
+
+.splash .num.title {
+  font-size: clamp(34px, 6.4vw, 108px);
+  max-width: 14ch;
+}
+
+.splash .sub {
+  font-size: clamp(20px, 3vw, 54px);
+  font-weight: 600;
+  color: #f7efcf;
+  text-align: center;
+  padding: 0 24px;
+}
+
+.splash .hint {
+  margin-top: 1.4em;
+  font-size: clamp(14px, 1.2vw, 20px);
   font-weight: 800;
-  font-size: 15px;
   color: var(--muted);
   animation: pulse 2.2s ease-in-out infinite;
-  transition: opacity 0.4s;
-  pointer-events: none;
 }
 
-.hint.hidden {
-  opacity: 0;
-  animation: none;
+.splash .hint.hidden {
+  display: none;
 }
 
 @keyframes pulse {
@@ -252,30 +345,42 @@ canvas {
   }
 }
 
-@media (max-width: 1100px) {
-  .card {
-    max-width: 40vw;
-  }
+/* Dip to black for replay */
+.dip {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
 }
 
-/* Phones */
-@media (max-width: 720px) {
-  .card {
-    left: 10px;
-    right: 10px;
-    bottom: 70px;
-    max-width: none;
-    padding: 12px 16px 10px;
-    border-radius: 16px;
+.dip.on {
+  opacity: 1;
+}
+
+/* Phones and portrait */
+@media (max-width: 720px), (max-aspect-ratio: 1/1) {
+  .overlay {
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: auto;
+    width: auto;
+    padding: 12px 14px 28px;
+    background: linear-gradient(180deg, rgba(10, 10, 12, 0.92) 0%, rgba(10, 10, 12, 0.8) 75%, rgba(10, 10, 12, 0) 100%);
   }
 
-  .card h1 {
+  .overlay h2 {
     font-size: 20px;
   }
 
-  .card ul,
-  .card .sub {
-    font-size: 14px;
+  .overlay ul {
+    font-size: 15px;
+  }
+
+  .overlay li {
+    margin: 0.3em 0;
   }
 
   .nav {
@@ -295,8 +400,7 @@ canvas {
 
   .dial {
     right: 10px;
-    top: 10px;
-    bottom: auto;
+    bottom: 64px;
     width: 104px;
     padding: 8px 8px 6px;
     border-radius: 14px;
@@ -305,21 +409,10 @@ canvas {
   .dial .label {
     font-size: 11px;
   }
-
-  .dial .laps {
-    font-size: 11px;
-  }
-
-  .hint {
-    bottom: auto;
-    top: 16px;
-    left: 16px;
-    transform: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hint {
+  .splash .hint {
     animation: none;
   }
 }

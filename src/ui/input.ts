@@ -5,10 +5,7 @@ export interface Controls {
   next(): void;
   prev(): void;
   goTo(n: number): void;
-  forceDerail(): void;
-  nudgeSpeed(factor: number): void;
-  resetPhase(): void;
-  toggleFollow(): void;
+  replay(): void;
 }
 
 export function parseHash(): number | null {
@@ -53,33 +50,17 @@ export function bindInput(c: Controls, hud: Hud, canvas: HTMLCanvasElement): voi
       case 'End':
         c.goTo(PHASE_COUNT - 1);
         break;
-      case 'd':
-      case 'D':
-        c.forceDerail();
-        break;
-      case '+':
-      case '=':
-        c.nudgeSpeed(1.25);
-        break;
-      case '-':
-      case '_':
-        c.nudgeSpeed(0.8);
-        break;
       case 'b':
       case 'B':
-        hud.toggleBullets();
+        hud.toggleOverlay();
         break;
       case 'r':
       case 'R':
-        c.resetPhase();
+        c.replay();
         break;
       case 'f':
       case 'F':
         toggleFullscreen();
-        break;
-      case 'c':
-      case 'C':
-        c.toggleFollow();
         break;
       default:
         if (/^[0-8]$/.test(e.key)) c.goTo(Number(e.key));
@@ -89,6 +70,8 @@ export function bindInput(c: Controls, hud: Hud, canvas: HTMLCanvasElement): voi
   hud.onNext = () => c.next();
   hud.onPrev = () => c.prev();
   hud.onGoTo = (n) => c.goTo(n);
+  hud.onReplay = () => c.replay();
+  hud.onSplashClick = () => c.next();
 
   // Phones: tap the right or left third of the scene to navigate.
   canvas.addEventListener('pointerup', (e) => {

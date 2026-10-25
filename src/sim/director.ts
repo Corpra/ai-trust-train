@@ -1,23 +1,15 @@
 import * as THREE from 'three';
-import {
-  COLORS,
-  LAP_SECONDS,
-  MOTION,
-  PHASE_COUNT,
-  TRUST_FLOOR,
-  TRUST_PER_CLEAN_LAP,
-  TRUST_PER_DERAIL,
-  TRUST_PER_OK_CARGO,
-} from '../config';
+import { DIP, MOTION, PHASE_COUNT, PUSH_FRACTION, PUSH_SECONDS, SPLASH_HOLD, SPLASH_IN, SPLASH_OUT, TRAVEL_SECONDS, TRUST } from '../config';
 import { ease, Sequencer, step, until, wait, type Seq, tweens } from '../tween';
-import { pop, show, snapShow, unpop } from '../fx';
+import { pop, snapShow } from '../fx';
 import type { World, Hazard } from '../world/world';
-import type { Train } from '../actors/train';
-import { type Human, makeTicket } from '../actors/human';
+import { makeCrate, type Train } from '../actors/train';
+import { type Human, makeTicket, type Pose } from '../actors/human';
 import type { Hud } from '../ui/hud';
 import type { CameraRig } from '../cameraRig';
 import { writeHash, type Controls } from '../ui/input';
-import { box } from '../util3d';
+import { frameAt, newFrame, RAIL_TOP } from '../world/track';
+import { approach, clamp01 } from '../util3d';
 
 interface Deps {
   scene: THREE.Scene;
@@ -26,64 +18,42 @@ interface Deps {
   human: Human;
   hud: Hud;
   rig: CameraRig;
+  rim: THREE.DirectionalLight;
 }
 
-type HumanMode = 'free' | 'push' | 'cab';
+type EnterMode = 'splash' | 'initial' | 'dip';
 
-const WHOLE = { pos: [0, 27, 37] as const, look: [0, 0, 6] as const };
-const CAM: { pos: readonly [number, number, number]; look: readonly [number, number, number] }[] = [
-  { pos: [9, 7, 23], look: [-0.5, 1, 11] },
-  WHOLE,
-  WHOLE,
-  WHOLE,
-  WHOLE,
-  WHOLE,
-  WHOLE,
-  { pos: [0, 25, 35], look: [0, 0, 7] },
-  { pos: [0, 60, 13], look: [0, 0, 3] },
-];
-
-function makeCrate(): THREE.Group {
-  const g = new THREE.Group();
-  g.add(box(0.72, 0.72, 0.72, COLORS.crate));
-  for (const y of [-0.2, 0.2]) {
-    const band = box(0.76, 0.1, 0.76, COLORS.crateDark);
-    band.position.y = y;
-    g.add(band);
-  }
-  return g;
+interface Ev {
+  h: Hazard;
+  kind: 'fork' | 'derail' | 'sparks' | 'crate';
+  install?: boolean;
+  index?: number;
 }
+
+const END_CAM = { pos: new THREE.Vector3(129, 84, 51), look: new THREE.Vector3(49, 0, -45) };
+const NO_POSE = { lat: 0, lift: 0, roll: 0, pitch: 0, yaw: 0 };
 
 export class Director implements Controls {
   phase = 0;
 
-  private cruise = 0;
-  private speedScale = 1;
-  private trust = 0;
-  private trustShown = 0;
-  private cleanLaps = 0;
-  private lapHadDerail = false;
-  private lap = 0;
-  private time = 0;
-
   private readonly seq = new Sequencer();
-  private readonly loopSeq = new Sequencer();
-  private awaitingFix: Hazard | null = null;
-  private manualFixDone = false;
-  private grace = false;
-  private forced = false;
-  private derailing = false;
+  private inHold = false;
+  private skip = false;
+
+  private cruise = 0;
+  private hold = true;
   private frozen = false;
-  private hold = false;
+  private reverse = false;
+  private pushing = false;
+  private stopAt: number | null = null;
+  private takeSpur = false;
   private spurBumped = false;
-  private stopAtStation = false;
-  private atStation = false;
-  private humanMode: HumanMode = 'free';
+  private time = 0;
   private sweatTimer = 0;
+  private shake = 0;
 
   private readonly ticket: THREE.Mesh;
-  private readonly stack: THREE.Group[] = [];
-  private wagonCrate: THREE.Group | null = null;
+  private readonly crates: THREE.Group[] = [];
 
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
@@ -92,7 +62,8 @@ export class Director implements Controls {
   constructor(private readonly d: Deps) {
     d.train.spurCurve = d.world.spurCurve;
     d.train.spurLen = d.world.spurLen;
-    d.rig.followTarget = d.train.loco;
+    d.train.liftAt = (s) => d.world.liftAt(s);
+    d.rig.target = d.train.loco;
     this.ticket = makeTicket();
     this.ticket.visible = false;
     d.scene.add(this.ticket);
@@ -101,7 +72,10 @@ export class Director implements Controls {
   /* ---------------- Controls ---------------- */
 
   next(): void {
-    if (this.phase === 4 && this.phase4Next()) return;
+    if (this.inHold) {
+      this.skip = true;
+      return;
+    }
     this.goTo(this.phase + 1);
   }
 
@@ -109,217 +83,492 @@ export class Director implements Controls {
     this.goTo(this.phase - 1);
   }
 
-  goTo(n: number, snap = false): void {
+  goTo(n: number, initial = false): void {
     n = Math.max(0, Math.min(PHASE_COUNT - 1, n));
-    if (n === this.phase && !snap) return;
-    const forward = !snap && n === this.phase + 1;
-    this.enterPhase(n, forward);
+    if (n === this.phase && !initial) return;
+    this.seq.run(this.enter(n, initial ? 'initial' : 'splash'));
   }
 
-  forceDerail(): void {
-    if (this.derailing || this.phase <= 1) return;
-    this.forced = true;
+  replay(): void {
+    if (this.phase === 0 || this.phase === PHASE_COUNT - 1) return;
+    this.seq.run(this.enter(this.phase, 'dip'));
   }
 
-  nudgeSpeed(factor: number): void {
-    this.speedScale = Math.max(0.4, Math.min(2.5, this.speedScale * factor));
+  /* ---------------- Phase lifecycle ---------------- */
+
+  private *enter(n: number, mode: EnterMode): Seq {
+    const { hud } = this.d;
+    this.phase = n;
+    writeHash(n);
+    hud.setFinished(false);
+    this.inHold = false;
+    this.skip = false;
+
+    if (mode === 'dip') {
+      hud.dip(true);
+      yield wait(DIP);
+      this.reset(n);
+      hud.dip(false);
+      yield wait(DIP);
+    } else {
+      if (hud.splashShown) {
+        // the panel already covers the scene: swap its text instead of sliding out and back in
+        hud.splashSwap(n);
+        yield wait(0.5);
+      } else {
+        hud.splashIn(n, mode === 'initial');
+        yield wait(mode === 'initial' ? 0.05 : SPLASH_IN + 0.08);
+      }
+      this.reset(n);
+      if (n === 0) return; // the title panel stays up
+      this.inHold = true;
+      const end = performance.now() + SPLASH_HOLD * 1000;
+      yield until(() => this.skip || performance.now() >= end);
+      this.inHold = false;
+      this.skip = false;
+      hud.splashOut();
+      yield wait(SPLASH_OUT * 0.7);
+    }
+
+    yield* this.script(n);
+    if (n >= 1 && n < PHASE_COUNT - 1) hud.setFinished(true);
+  }
+
+  /** Put the scene in the starting state of phase n (called while the splash covers it). */
+  private reset(n: number): void {
+    const { train, human, world, hud, rig, scene } = this.d;
+    tweens.kill(train);
+    for (const c of train.cars) tweens.kill(c);
+    this.hold = true;
+    this.frozen = false;
+    this.reverse = false;
+    this.pushing = false;
+    this.cruise = 0;
+    this.stopAt = null;
+    this.takeSpur = false;
+    this.spurBumped = false;
+    this.sweatTimer = 0;
+    this.shake = 0;
+
+    train.reset();
+    train.derail = { ...NO_POSE };
+    train.baseY = n <= 1 ? 0.03 : RAIL_TOP;
+    world.setPhase(n);
+    this.clearCrates();
+    this.ticket.visible = false;
+    if (this.ticket.parent !== scene) scene.attach(this.ticket);
+    hud.setPhase(n);
+    hud.setTrust(TRUST[n]);
+    snapShow(human.clipboard, n >= 7);
+
+    train.setUpgrade('code', n >= 3);
+    train.setUpgrade('context', n >= 4);
+    if (n >= 7) train.addCart();
+    if (n === 8) {
+      train.s = world.stopS;
+      for (let i = 0; i < 2; i++) {
+        const c = makeCrate();
+        c.position.copy(world.spots.crates[i]);
+        scene.add(c);
+        this.crates.push(c);
+      }
+    }
+    train.update(0);
+
+    const p = train.worldPos(this.v1).clone();
+    const r = train.right(this.v2).clone();
+    const f = train.forward(this.v3).clone();
+    switch (n) {
+      case 0:
+      case 1:
+        this.attachHuman(train.pushSlot, 'push');
+        break;
+      case 2:
+      case 7: {
+        const beside = p.clone().addScaledVector(r, 2.5).addScaledVector(f, 0.9).setY(0);
+        this.placeHuman(beside, p.x, p.z, 'stand');
+        if (n === 7) {
+          human.handR.add(this.ticket);
+          this.ticket.position.set(0, -0.02, 0.12);
+          this.ticket.rotation.set(-0.3, 0, 0);
+          this.ticket.scale.setScalar(1);
+          this.ticket.visible = true;
+        }
+        break;
+      }
+      case 8: {
+        const w = world.spots.waitAtB;
+        this.placeHuman(w, p.x, p.z, 'stand');
+        break;
+      }
+      default:
+        this.attachHuman(train.cabSlot, 'drive');
+    }
+    human.update(0);
+
+    if (n === PHASE_COUNT - 1) rig.setFixed(END_CAM.pos, END_CAM.look, 0);
+    else rig.chase(true);
+  }
+
+  private *script(n: number): Seq {
+    switch (n) {
+      case 1:
+        yield* this.p1();
+        break;
+      case 2:
+        yield* this.p2();
+        break;
+      case 3:
+        yield* this.p3();
+        break;
+      case 4:
+        yield* this.p4();
+        break;
+      case 5:
+        yield* this.p5();
+        break;
+      case 6:
+        yield* this.p6();
+        break;
+      case 7:
+        yield* this.p7();
+        break;
+      default:
+        break;
+    }
+  }
+
+  /* ---------------- Phase scripts ---------------- */
+
+  private cruiseFor(n: number): number {
+    return TRAVEL_SECONDS[n] > 0 ? this.d.world.mainLen / TRAVEL_SECONDS[n] : 0;
+  }
+
+  private go(): void {
+    this.hold = false;
     this.cruise = this.cruiseFor(this.phase);
   }
 
-  resetPhase(): void {
-    this.enterPhase(this.phase, false);
+  private stopped(): boolean {
+    const { train } = this.d;
+    return this.stopAt !== null && train.s >= this.stopAt - 0.001 && train.speed === 0;
   }
 
-  toggleFollow(): void {
-    this.d.rig.follow = !this.d.rig.follow;
-  }
-
-  /** Phase 4: Next fixes the paused derail, or forces the first derail if it has not happened yet. */
-  private phase4Next(): boolean {
-    if (this.awaitingFix) {
-      const h = this.awaitingFix;
-      this.awaitingFix = null;
-      this.manualFixDone = true;
-      this.seq.run(this.fixSeq(h));
-      return true;
-    }
-    if (!this.manualFixDone && !this.derailing) {
-      if (this.forced) return false; // second press while waiting: let them move on
-      this.forced = true;
-      return true;
-    }
-    return false;
-  }
-
-  /* ---------------- Phases ---------------- */
-
-  private cruiseFor(n: number): number {
-    return n === 0 ? 0 : (this.d.train.loopLen / LAP_SECONDS[n]) * this.speedScale;
-  }
-
-  private enterPhase(n: number, forward: boolean): void {
-    const { train, human, world, hud, rig } = this.d;
-    const prev = this.phase;
-    this.phase = n;
-    writeHash(n);
-    hud.setPhase(n);
-
-    this.seq.cancel();
-    this.loopSeq.cancel();
-    this.awaitingFix = null;
-    this.derailing = false;
-    this.frozen = false;
+  private *p1(): Seq {
+    const { world, human } = this.d;
+    yield wait(0.3);
+    const dist = world.mainLen * PUSH_FRACTION;
+    this.stopAt = dist;
     this.hold = false;
-    this.forced = false;
-    this.grace = false;
-    this.spurBumped = false;
-    this.stopAtStation = false;
-    this.atStation = false;
-    this.lapHadDerail = false;
-    if (n !== 4 || !forward) this.manualFixDone = false;
-
-    train.resetDerail();
-    tweens.kill(train);
-    train.eyes = n >= 6 ? 'happy' : n >= 2 ? 'focused' : 'calm';
-    tweens.to(train, { wobble: n <= 1 ? 1 : 0 }, forward ? 1.4 * MOTION : 0);
-    if (!(forward && prev === 1 && n === 2)) {
-      if (forward) show(train.wagon, n >= 2, 0.6);
-      else snapShow(train.wagon, n >= 2);
-    }
-
-    world.setPhase(n, forward);
-
-    rig.setTarget(new THREE.Vector3(...CAM[n].pos), new THREE.Vector3(...CAM[n].look), forward ? 1.8 * MOTION : 0);
-    rig.follow = n === 1;
-    rig.drift = n === 0 ? 0.4 : 1;
-
-    const floor = TRUST_FLOOR[n];
-    this.trust = forward ? Math.max(this.trust, floor) : floor;
-    if (!forward) this.trustShown = floor;
-    if (!forward || n <= 3) this.cleanLaps = 0;
-    hud.setLaps(this.cleanLaps, n >= 4);
-    this.cruise = this.cruiseFor(n);
-
-    // cargo props
-    this.ticket.visible = false;
-    if (this.ticket.parent !== this.d.scene) this.d.scene.attach(this.ticket);
-    if (n < 7 || (!forward && n === 7)) this.clearStack();
-    if (n !== 8 && this.wagonCrate) {
-      train.wagon.remove(this.wagonCrate);
-      this.wagonCrate = null;
-    }
-
-    if (forward) {
-      this.seq.run(this.transition(prev, n));
-    } else {
-      this.snapHuman(n);
-    }
-    if (n === 7 && !forward) this.loopSeq.run(this.autonomousLoop());
-    if (n === 7 && forward && prev !== 6) this.loopSeq.run(this.autonomousLoop());
-    if (n === 0) {
-      train.s = 0;
-      train.speed = 0;
-    }
-    show(human.bubble, n === 1, 0.5, 1.5);
-    if (!forward) snapShow(human.bubble, n === 1, 1.5);
+    this.pushing = true;
+    this.cruise = dist / (PUSH_SECONDS * 0.76);
+    yield until(() => this.stopped());
+    this.pushing = false;
+    yield wait(0.25);
+    human.pose = 'exhausted';
   }
 
-  private snapHuman(n: number): void {
-    const { train, human, world } = this.d;
-    const S = world.spots;
-    human.walking = false;
-    snapShow(human.clipboard, n >= 7);
-    switch (n) {
-      case 0:
-        this.placeHuman(S.title, 0, 11, 'stand');
-        break;
-      case 1:
-        this.attachHuman(train.pushSlot, 'push', 'push');
-        break;
-      case 2:
-      case 3:
-      case 4:
-      case 5:
-        this.attachHuman(train.cabSlot, 'drive', 'cab');
-        break;
-      case 6:
-        this.placeHuman(S.watch, 0, 11, 'stand');
-        break;
-      default:
-        this.placeHuman(S.platform, S.platform.x, 11, 'stand');
-    }
+  private *p2(): Seq {
+    const { world, train } = this.d;
+    yield wait(0.4);
+    world.revealRails(1.5 * MOTION);
+    tweens.to(train, { baseY: RAIL_TOP }, 0.35 * MOTION, ease.out);
+    yield wait(1.75 * MOTION);
+    yield* this.upgrade('code');
+    yield* this.climbIn();
+    const H = world.byId;
+    yield* this.run([
+      { h: H.switch, kind: 'fork' },
+      { h: H.curve, kind: 'derail' },
+      { h: H.gap, kind: 'derail' },
+    ]);
   }
 
-  private *transition(prev: number, n: number): Seq {
-    const { train, human, world } = this.d;
-    const S = world.spots;
-    if (prev === 0 && n === 1) {
-      this.hold = true;
-      const slot = train.loco.localToWorld(train.pushSlot.position.clone());
-      yield* this.walkTo(slot.x, S.title.y, 12.5, 2.6);
-      yield* this.hop(new THREE.Vector3(slot.x, 0, slot.z));
-      this.attachHuman(train.pushSlot, 'push', 'push');
-      yield wait(0.3);
-      this.hold = false;
-    } else if (prev === 1 && n === 2) {
-      this.hold = true;
-      human.pose = 'stand';
-      yield until(() => train.speed < 0.05);
-      this.detachHuman();
-      const p = train.worldPos(this.v1).clone();
-      const r = train.right(this.v2).clone();
-      const f = train.forward(this.v3).clone();
-      const aside = p.clone().addScaledVector(r, 2.3).addScaledVector(f, -2.2);
-      aside.y = 0;
-      yield* this.walkTo(aside.x, 0, aside.z, 2.5);
-      human.faceTowards(p.x, p.z);
-      yield wait(0.5);
-      show(train.wagon, true, 0.7);
+  private *p3(): Seq {
+    const H = this.d.world.byId;
+    yield wait(0.4);
+    yield* this.upgrade('context');
+    yield* this.run([
+      { h: H.curve, kind: 'derail' },
+      { h: H.gap, kind: 'derail' },
+    ]);
+  }
+
+  private *p4(): Seq {
+    const H = this.d.world.byId;
+    yield wait(0.4);
+    yield* this.run([
+      { h: H.curve, kind: 'derail', install: true },
+      { h: H.gap, kind: 'derail', install: true },
+    ]);
+  }
+
+  private *p5(): Seq {
+    const H = this.d.world.byId;
+    yield wait(0.4);
+    yield* this.run([
+      { h: H.bump, kind: 'derail', install: true },
+      { h: H.curve, kind: 'sparks' },
+    ]);
+  }
+
+  private *p6(): Seq {
+    yield wait(0.4);
+    yield* this.run([]);
+  }
+
+  private *p7(): Seq {
+    const { world, train, human, scene, rig } = this.d;
+    const H = world.byId;
+    yield wait(0.5);
+
+    // hand over the ticket
+    human.pose = 'offer';
+    yield wait(0.7);
+    const from = this.ticket.getWorldPosition(new THREE.Vector3());
+    scene.attach(this.ticket);
+    const to = train.loco.localToWorld(train.ticketSlot.position.clone());
+    yield step(0.6 * MOTION + 0.01, (t) => {
+      this.ticket.position.lerpVectors(from, to, t);
+      this.ticket.position.y += Math.sin(Math.PI * t) * 0.6;
+    });
+    train.loco.attach(this.ticket);
+    this.ticket.rotation.set(0, 0, 0);
+    yield wait(0.3);
+
+    // point down the track, and off it goes
+    const fwd = train.forward(this.v3).clone();
+    human.faceAlong(fwd);
+    human.pose = 'point';
+    yield wait(0.8);
+    this.go();
+    yield wait(1.2);
+    human.pose = 'stand';
+    yield until(() => train.s > 22);
+
+    // the human is already waiting at B when the train gets there
+    const w = world.spots.waitAtB;
+    const stopFrame = world.main.getPointAt(world.stopS / world.mainLen);
+    this.placeHuman(w, stopFrame.x, stopFrame.z, 'stand');
+    pop(human.clipboard, 0.01);
+
+    yield* this.run([
+      { h: H.bump, kind: 'crate', index: 0 },
+      { h: H.curve, kind: 'crate', index: 1 },
+      { h: H.gap, kind: 'crate', index: 2 },
+    ]);
+    // a side shot of the whole train at the slab, so the inspection stays in view
+    const sf = frameAt(world.main, world.stopS / world.mainLen, newFrame());
+    const mid = sf.pos.clone().addScaledVector(sf.tan, -2.2);
+    rig.setFixed(mid.clone().addScaledVector(sf.right, 14).addScaledVector(sf.tan, -7).setY(9), mid.clone().setY(0.6), 1.4 * MOTION);
+    yield wait(0.6);
+
+    // inspection: two good crates, one rejected
+    const cargo = train.cars[0];
+    const r = train.right(this.v2).clone();
+    for (let i = 0; i < 3; i++) {
+      const crate = this.crates[i];
+      const slot = cargo.crateSlots[i].getWorldPosition(new THREE.Vector3());
+      const standAt = slot.clone().addScaledVector(r, 1.75).setY(world.spots.slabTop);
+      yield* this.walkTo(standAt, 2.6);
+      human.faceTowards(slot.x, slot.z);
+      human.pose = 'inspect';
       yield wait(0.9);
-      yield* this.climbIn();
-      this.hold = false;
-    } else if (prev === 4 && n === 5) {
-      for (const h of world.hazards) {
-        if (!h.base) {
-          world.installGuardrail(h, false);
-          yield wait(0.25);
-        }
+      const ok = i < 2;
+      world.fx.verdict(slot.clone().add(new THREE.Vector3(0, 1.0, 0)), ok);
+      yield wait(0.55);
+      if (ok) {
+        scene.attach(crate);
+        const a = crate.position.clone();
+        const b = world.spots.crates[i];
+        yield step(0.65 * MOTION + 0.01, (t) => {
+          crate.position.lerpVectors(a, b, t);
+          crate.position.y += Math.sin(Math.PI * t) * 0.8;
+        });
       }
-      human.pose = 'point';
-      yield wait(0.8);
-      human.pose = 'drive';
-    } else if (prev === 5 && n === 6) {
-      for (const h of world.hazards) {
-        if (h.speedHazard && !h.strong) {
-          world.installGuardrail(h, true);
-          yield wait(0.25);
-        }
-      }
-      yield* this.awaitStation();
-      yield wait(0.3);
-      this.detachHuman();
-      yield* this.hop(new THREE.Vector3(S.watch.x - 1.6, S.watch.y, S.watch.z - 0.4));
-      yield* this.walkTo(S.watch.x, S.watch.y, S.watch.z, 2.4);
-      human.faceTowards(0, 11);
       human.pose = 'stand';
-      yield wait(0.5);
-      this.stopAtStation = false;
-      this.atStation = false;
-    } else if (prev === 6 && n === 7) {
-      yield* this.walkTo(S.platform.x, S.platform.y, S.platform.z, 2.4);
-      human.faceTowards(S.platform.x, 11);
-      show(human.clipboard, true, 0.4);
-      this.loopSeq.run(this.autonomousLoop());
-    } else if (n === 1) {
-      this.snapHuman(1);
-    } else if (n >= 2 && n <= 5 && this.humanMode !== 'cab') {
-      this.snapHuman(n);
+      yield wait(0.2);
     }
+    human.faceTowards(stopFrame.x, stopFrame.z);
+    yield wait(0.6);
+
+    // back it goes with the rejected crate
+    this.stopAt = null;
+    this.reverse = true;
+    this.hold = false;
+    this.cruise = -this.cruiseFor(7) * 0.6;
+    yield until(() => train.s < world.stopS - 55);
+    this.frozen = true;
+  }
+
+  /* ---------------- Building blocks ---------------- */
+
+  /** Drive from the current spot to B, playing the scripted events on the way. */
+  private *run(events: Ev[]): Seq {
+    const { train, world } = this.d;
+    this.go();
+    for (const ev of events) {
+      if (ev.kind === 'fork') {
+        this.takeSpur = true;
+        yield until(() => this.spurBumped);
+        yield* this.fixFork(ev.h);
+        continue;
+      }
+      yield until(() => train.s >= ev.h.s);
+      if (ev.kind === 'derail') yield* this.derailAndFix(ev.h, !!ev.install);
+      else if (ev.kind === 'sparks') yield* this.scrape(ev.h);
+      else if (ev.kind === 'crate') this.dropCrate(ev.index ?? 0);
+    }
+    this.stopAt = world.stopS;
+    yield until(() => this.stopped());
+  }
+
+  /** The loco gains a visible enhancement: codebase in phase 2, context in phase 3. */
+  private *upgrade(kind: 'code' | 'context'): Seq {
+    const { train, world } = this.d;
+    train.setUpgrade(kind, true, true);
+    world.fx.flash(train.worldPos(this.v1).clone().setY(RAIL_TOP + 0.3), 0xffffff);
+    yield wait(1.1 * MOTION);
+  }
+
+  private dropCrate(i: number): void {
+    const { train } = this.d;
+    const car = train.cars[0];
+    if (!car) return;
+    const crate = makeCrate();
+    car.group.add(crate);
+    crate.position.copy(car.crateSlots[i].position);
+    const y = crate.position.y;
+    crate.position.y += 4;
+    tweens.to(crate.position, { y }, 0.6 * MOTION, ease.outBounce);
+    this.crates.push(crate);
+  }
+
+  private clearCrates(): void {
+    for (const c of this.crates) {
+      tweens.kill(c.position);
+      c.removeFromParent();
+    }
+    this.crates.length = 0;
+  }
+
+  private *derailAndFix(h: Hazard, install: boolean): Seq {
+    const { train, human, world } = this.d;
+    this.frozen = true;
+    train.speed = 0;
+    train.s = h.s;
+    train.derail = { ...h.pose };
+    world.fx.burstDust(train.worldPos(this.v1), h.id === 'gap' ? 14 : 12, 1.2);
+    yield step(0.45 * MOTION + 0.01, (t) => {
+      train.derailAmount = ease.out(t);
+    });
+    yield wait(0.55);
+
+    const p = train.worldPos(this.v1).clone();
+    const r = train.right(this.v2).clone();
+    const f = train.forward(this.v3).clone();
+    this.detachHuman();
+    yield* this.hop(p.clone().addScaledVector(r, 1.8).addScaledVector(f, -1.0).setY(0));
+    const standAt = p
+      .clone()
+      .addScaledVector(r, 1.55)
+      .addScaledVector(f, h.id === 'gap' ? 1.2 : 0.2)
+      .setY(0);
+    yield* this.walkTo(standAt, 3.5);
+    human.faceTowards(p.x, p.z);
+    human.pose = 'crouch';
+    yield wait(0.45);
+    human.pose = 'heave';
+    yield wait(0.4);
+    human.pose = 'crouch';
+    yield wait(0.4);
+    human.pose = 'heave';
+    const s0 = train.s;
+    yield step(0.6 * MOTION + 0.01, (t) => {
+      const k = ease.inOut(t);
+      train.derailAmount = 1 - k;
+      train.s = s0 + h.clear * k;
+    });
+    train.derailAmount = 0;
+    world.fx.burstDust(train.worldPos(this.v1), 6, 0.6);
+    human.pose = 'stand';
+    yield wait(0.25);
+    if (install) {
+      world.installGuardrail(h);
+      human.faceTowards(h.pos.x, h.pos.z);
+      human.pose = 'point';
+      yield wait(0.9);
+      human.pose = 'stand';
+    }
+    yield* this.climbIn();
+    this.frozen = false;
+  }
+
+  private onSpurBump(): void {
+    const { train, world } = this.d;
+    this.spurBumped = true;
+    this.frozen = true;
+    train.speed = 0;
+    train.derail = { ...world.byId.switch.pose };
+    tweens.to(train, { derailAmount: 1 }, 0.3, ease.out);
+    world.fx.burstDust(train.worldPos(this.v1), 8, 0.8);
+  }
+
+  private *fixFork(h: Hazard): Seq {
+    const { train, human, world, rig } = this.d;
+    yield wait(0.5);
+    const p = train.worldPos(this.v1).clone();
+    const r = train.right(this.v2).clone();
+    const f = train.forward(this.v3).clone();
+    const lever = h.pos.clone().addScaledVector(h.frame.right, 1.7);
+    // a side shot that keeps both the stranded loco and the lever in view
+    const look = p.clone().add(lever).multiplyScalar(0.5).addScaledVector(h.frame.tan, 1.2).setY(0.8);
+    const camPos = look.clone().addScaledVector(h.frame.right, 15).addScaledVector(h.frame.tan, -3).setY(8.5);
+    rig.setFixed(camPos, look, 1.2 * MOTION);
+    this.detachHuman();
+    yield* this.hop(p.clone().addScaledVector(r, 1.8).addScaledVector(f, -1.0).setY(0));
+    yield* this.walkTo(world.spots.lever, 4.2);
+    human.faceTowards(lever.x, lever.z);
+    human.pose = 'offer';
+    yield wait(0.3);
+    world.setLever(true, true);
+    yield wait(0.6);
+    human.pose = 'stand';
+    yield* this.climbIn();
+    rig.chase();
+    const len = train.spurS;
+    yield step(Math.max(0.8, len / 6) * MOTION, (t) => {
+      const k = ease.inOut(t);
+      train.spurS = len * (1 - k);
+      train.derailAmount = 1 - k;
+    });
+    train.onSpur = false;
+    train.spurS = 0;
+    train.s = h.s;
+    train.derailAmount = 0;
+    this.takeSpur = false;
+    this.spurBumped = false;
+    this.frozen = false;
+  }
+
+  /** Phase 5: the curve guardrail holds at speed, with sparks. */
+  private *scrape(_h: Hazard): Seq {
+    const { train, world } = this.d;
+    train.derail = { lat: -0.12, lift: 0, roll: 0.16, pitch: 0, yaw: -0.04 };
+    yield step(1.0 * MOTION + 0.01, (t) => {
+      train.derailAmount = Math.sin(Math.PI * t);
+      const p = train.worldPos(this.v1).clone();
+      const r = train.right(this.v2);
+      const f = train.forward(this.v3);
+      const wheel = p.addScaledVector(r, -0.72).addScaledVector(f, 0.4).setY(0.25);
+      world.fx.emitSparks(wheel, f.clone().negate(), 2);
+    });
+    train.derailAmount = 0;
   }
 
   /* ---------------- Human helpers ---------------- */
 
-  private placeHuman(p: THREE.Vector3, faceX: number, faceZ: number, pose: Human['pose']): void {
+  private placeHuman(p: THREE.Vector3, faceX: number, faceZ: number, pose: Pose): void {
     const { human, scene } = this.d;
     if (human.group.parent !== scene) scene.add(human.group);
     human.group.position.copy(p);
@@ -327,17 +576,15 @@ export class Director implements Controls {
     human.faceTowards(faceX, faceZ);
     human.pose = pose;
     human.walking = false;
-    this.humanMode = 'free';
   }
 
-  private attachHuman(slot: THREE.Object3D, pose: Human['pose'], mode: HumanMode): void {
+  private attachHuman(slot: THREE.Object3D, pose: Pose): void {
     const { human, train } = this.d;
     train.loco.add(human.group);
     human.group.position.copy(slot.position);
     human.group.rotation.set(0, 0, 0);
     human.pose = pose;
     human.walking = false;
-    this.humanMode = mode;
   }
 
   private detachHuman(): void {
@@ -345,16 +592,14 @@ export class Director implements Controls {
     scene.attach(human.group);
     human.group.rotation.x = 0;
     human.group.rotation.z = 0;
-    this.humanMode = 'free';
   }
 
-  private *walkTo(x: number, y: number, z: number, speed = 3): Seq {
+  private *walkTo(to: THREE.Vector3, speed = 3): Seq {
     const { human } = this.d;
     const from = human.group.position.clone();
-    const to = new THREE.Vector3(x, y, z);
     const dist = from.distanceTo(to);
     if (dist < 0.05) return;
-    human.faceTowards(x, z);
+    human.faceTowards(to.x, to.z);
     human.pose = 'stand';
     human.walking = true;
     yield step(
@@ -381,395 +626,98 @@ export class Director implements Controls {
     const p = train.worldPos(this.v1).clone();
     const r = train.right(this.v2).clone();
     const f = train.forward(this.v3).clone();
-    const beside = p.clone().addScaledVector(r, 1.6).addScaledVector(f, -1.0);
-    beside.y = 0;
-    yield* this.walkTo(beside.x, 0, beside.z, 3);
+    const beside = p.clone().addScaledVector(r, 1.7).addScaledVector(f, -1.05).setY(0);
+    yield* this.walkTo(beside, 3.5);
     const cab = train.loco.localToWorld(train.cabSlot.position.clone());
     yield* this.hop(cab);
-    this.attachHuman(train.cabSlot, 'drive', 'cab');
-  }
-
-  /* ---------------- Derails ---------------- */
-
-  private rule(h: Hazard): boolean {
-    const { train } = this.d;
-    switch (this.phase) {
-      case 2:
-        return !this.lapHadDerail && h.index === this.lap % 4;
-      case 3:
-        return !this.lapHadDerail && this.lap % 3 === 1 && h.index === Math.floor(this.lap / 3) % 4;
-      case 4:
-        return !h.base && !this.grace;
-      case 5:
-        return h.speedHazard && !h.strong && !this.grace && train.speed > this.cruise * 0.8;
-      default:
-        return false;
-    }
-  }
-
-  /** Returns true when the train stops advancing on the main line at this hazard. */
-  private onHazard(h: Hazard): boolean {
-    if (this.derailing) return false;
-    if (!this.forced && !this.rule(h)) return false;
-    this.forced = false;
-    this.startDerail(h);
-    return true;
-  }
-
-  private startDerail(h: Hazard): void {
-    const { train, hud } = this.d;
-    this.derailing = true;
-    this.lapHadDerail = true;
-    this.cleanLaps = 0;
-    hud.setLaps(0, this.phase >= 4);
-    this.bumpTrust(-TRUST_PER_DERAIL);
-    train.eyes = 'wide';
-    const violent = this.phase >= 5;
-    if (h.id === 'switch') {
-      this.spurBumped = false;
-      train.onSpur = true;
-      train.spurS = 0;
-      train.spurAnchorS = h.s;
-      train.derail = violent ? h.violentPose : h.derailPose;
-      this.seq.run(this.spurSeq(h));
-    } else {
-      this.frozen = true;
-      train.speed = 0;
-      train.derail = violent ? h.violentPose : h.derailPose;
-      this.seq.run(this.derailSeq(h, violent));
-    }
-  }
-
-  private *derailSeq(h: Hazard, violent: boolean): Seq {
-    const { train, world } = this.d;
-    world.fx.burstDust(train.worldPos(this.v1), violent ? 18 : 10, violent ? 1.7 : 1);
-    yield step(0.45 * MOTION + 0.01, (t) => {
-      train.derailAmount = ease.out(t);
-    });
-    train.eyes = 'dizzy';
-    if (this.phase === 4 && !this.manualFixDone) {
-      this.awaitingFix = h;
-      return;
-    }
-    yield wait(1.0);
-    yield* this.fixSeq(h);
-  }
-
-  private *spurSeq(h: Hazard): Seq {
-    yield until(() => this.spurBumped);
-    this.d.train.eyes = 'dizzy';
-    if (this.phase === 4 && !this.manualFixDone) {
-      this.awaitingFix = h;
-      return;
-    }
-    yield wait(1.0);
-    yield* this.fixSeq(h);
-  }
-
-  private onSpurBump(): void {
-    const { train, world } = this.d;
-    this.spurBumped = true;
-    this.frozen = true;
-    train.speed = 0;
-    tweens.to(train, { derailAmount: 1 }, 0.3, ease.out);
-    world.fx.burstDust(train.worldPos(this.v1), 8, 0.8);
-  }
-
-  private *fixSeq(h: Hazard): Seq {
-    const { train, human, world } = this.d;
-    const wasMounted = this.humanMode !== 'free';
-    const p = train.worldPos(this.v1).clone();
-    const r = train.right(this.v2).clone();
-    const f = train.forward(this.v3).clone();
-    const side = train.derail.lat >= 0 ? 1 : -1;
-
-    if (wasMounted) {
-      this.detachHuman();
-      const down = p.clone().addScaledVector(r, side * 1.7).addScaledVector(f, -1.2);
-      down.y = 0;
-      yield* this.hop(down);
-    }
-
-    const standAt = h.id === 'switch' ? world.spots.lever.clone() : p.clone().addScaledVector(r, side * 2.0).setY(0);
-    const far = human.group.position.distanceTo(standAt) > 12;
-    yield* this.walkTo(standAt.x, 0, standAt.z, far ? 8 : 4);
-    human.faceTowards(p.x, p.z);
-    human.pose = h.id === 'switch' ? 'point' : 'push';
-    yield wait(0.35);
-
-    if (train.onSpur) {
-      const len = train.spurS;
-      yield step(1.3 * MOTION + 0.01, (t) => {
-        const k = ease.inOut(t);
-        train.spurS = len * (1 - k);
-        train.derailAmount = 1 - k;
-      });
-      train.onSpur = false;
-      train.spurS = 0;
-      train.s = h.s;
-    } else {
-      yield step(0.7 * MOTION + 0.01, (t) => {
-        train.derailAmount = 1 - ease.inOut(t);
-      });
-    }
-    train.derailAmount = 0;
-    train.eyes = 'calm';
-    human.pose = 'stand';
-
-    if (this.phase >= 4) {
-      world.installGuardrail(h, this.phase >= 5 && h.speedHazard && h.base);
-      yield wait(0.7);
-    } else {
-      yield wait(0.2);
-    }
-
-    if (this.phase <= 5) {
-      yield* this.climbIn();
-    } else {
-      const spot = this.phase === 6 ? world.spots.watch : world.spots.platform;
-      yield* this.walkTo(spot.x, spot.y, spot.z, 8);
-      human.faceTowards(spot.x, 11);
-    }
-    train.eyes = this.phase >= 6 ? 'happy' : 'focused';
-    this.frozen = false;
-    this.derailing = false;
-    if (this.phase === 4 || this.phase === 5) this.grace = true;
-  }
-
-  /* ---------------- Laps, trust ---------------- */
-
-  private onLap(): void {
-    this.lap++;
-    if (!this.lapHadDerail && this.phase >= 2) {
-      this.cleanLaps++;
-      this.bumpTrust(TRUST_PER_CLEAN_LAP);
-    }
-    this.lapHadDerail = false;
-    this.grace = false;
-    this.d.hud.setLaps(this.cleanLaps, this.phase >= 4);
-  }
-
-  private bumpTrust(delta: number): void {
-    const floor = TRUST_FLOOR[this.phase];
-    const ceil = this.phase >= PHASE_COUNT - 1 ? 1 : TRUST_FLOOR[this.phase + 1] - 0.015;
-    this.trust = Math.max(floor, Math.min(ceil, this.trust + delta));
-  }
-
-  /* ---------------- Phase 7: autonomous loop ---------------- */
-
-  private stackSlot(i: number): THREE.Vector3 {
-    const s = this.d.world.spots.stack;
-    return new THREE.Vector3(s.x - (i % 2) * 0.82, s.y + Math.floor(i / 2) * 0.74, s.z);
-  }
-
-  private clearStack(): void {
-    for (const c of this.stack) c.removeFromParent();
-    this.stack.length = 0;
-  }
-
-  /** Brake and wait at the station; resolves at once when the train already stands there. */
-  private *awaitStation(): Seq {
-    const { train } = this.d;
-    this.stopAtStation = true;
-    if (train.s < 0.1 && train.speed < 0.01) {
-      this.atStation = true;
-      return;
-    }
-    this.atStation = false;
-    yield until(() => this.atStation);
-  }
-
-  private *autonomousLoop(): Seq {
-    const { train, human, scene } = this.d;
-    let returns = 0;
-    while (true) {
-      // wait for the train at the station
-      yield* this.awaitStation();
-      yield wait(0.3);
-
-      // hand over the ticket
-      human.pose = 'point';
-      human.faceTowards(0, 11);
-      const from = human.group.position.clone().add(new THREE.Vector3(0, 1.3, -0.6));
-      const to = train.loco.localToWorld(train.ticketSlot.position.clone());
-      this.ticket.visible = true;
-      this.ticket.scale.setScalar(1);
-      yield step(0.7 * MOTION + 0.01, (t) => {
-        this.ticket.position.lerpVectors(from, to, t);
-        this.ticket.position.y += Math.sin(Math.PI * t) * 0.7;
-      });
-      train.loco.attach(this.ticket);
-      human.pose = 'inspect';
-      yield wait(0.4);
-
-      // off it goes
-      train.eyes = 'focused';
-      this.stopAtStation = false;
-      this.atStation = false;
-      yield until(() => train.s > train.loopLen * 0.45 && train.s < train.loopLen * 0.9);
-
-      // work done: cargo appears
-      const crate = makeCrate();
-      train.wagon.add(crate);
-      crate.position.copy(train.crateSlot.position);
-      crate.position.y += 0.36;
-      pop(crate, 0.5);
-      this.wagonCrate = crate;
-      train.eyes = 'happy';
-
-      yield* this.awaitStation();
-      yield wait(0.3);
-
-      returns++;
-      const ok = returns % 4 !== 3;
-      yield* this.unloadAndJudge(crate, ok);
-      if (!ok) {
-        // back on the wagon, one more lap, then it passes
-        const target = train.wagon.localToWorld(train.crateSlot.position.clone()).add(new THREE.Vector3(0, 0.36, 0));
-        const a = crate.position.clone();
-        yield step(0.6 * MOTION + 0.01, (t) => {
-          crate.position.lerpVectors(a, target, t);
-          crate.position.y += Math.sin(Math.PI * t) * 0.6;
-        });
-        train.wagon.attach(crate);
-        this.wagonCrate = crate;
-        train.eyes = 'focused';
-        human.pose = 'stand';
-        this.stopAtStation = false;
-        this.atStation = false;
-        yield until(() => train.s > train.loopLen * 0.3);
-        yield* this.awaitStation();
-        yield wait(0.3);
-        train.eyes = 'happy';
-        yield* this.unloadAndJudge(crate, true);
-      }
-      // ticket is spent
-      unpop(this.ticket, 0.3);
-      yield wait(0.4);
-      scene.attach(this.ticket);
-      this.ticket.visible = false;
-      human.pose = 'stand';
-      yield wait(0.5);
-    }
-  }
-
-  private *unloadAndJudge(crate: THREE.Group, ok: boolean): Seq {
-    const { human, world, scene } = this.d;
-    scene.attach(crate);
-    this.wagonCrate = null;
-    const a = crate.position.clone();
-    const b = world.spots.inspect.clone();
-    yield step(0.8 * MOTION + 0.01, (t) => {
-      crate.position.lerpVectors(a, b, t);
-      crate.position.y += Math.sin(Math.PI * t) * 0.9;
-    });
-    human.pose = 'inspect';
-    human.faceTowards(b.x, b.z);
-    yield wait(0.9);
-    world.fx.verdict(b.clone().add(new THREE.Vector3(0, 1.1, 0)), ok);
-    yield wait(0.6);
-    if (ok) {
-      this.bumpTrust(TRUST_PER_OK_CARGO);
-      const slot = this.stackSlot(this.stack.length % 6);
-      if (this.stack.length >= 6) {
-        const old = this.stack.shift()!;
-        unpop(old, 0.3);
-        setTimeout(() => old.removeFromParent(), 400);
-        // shift remaining crates down a slot
-        this.stack.forEach((c, i) => tweens.to(c.position, { x: this.stackSlot(i).x, y: this.stackSlot(i).y }, 0.4));
-      }
-      const c0 = crate.position.clone();
-      const finalSlot = this.stack.length >= 6 ? this.stackSlot(5) : slot;
-      yield step(0.6 * MOTION + 0.01, (t) => {
-        crate.position.lerpVectors(c0, finalSlot, t);
-        crate.position.y += Math.sin(Math.PI * t) * 0.5;
-      });
-      this.stack.push(crate);
-      human.pose = 'stand';
-    }
+    this.attachHuman(train.cabSlot, 'drive');
   }
 
   /* ---------------- Per frame ---------------- */
 
   update(dt: number): void {
-    const { train, human, world, hud } = this.d;
+    const { train, human, world, rig, rim } = this.d;
     this.time += dt;
     tweens.update(dt);
     this.seq.update(dt);
-    this.loopSeq.update(dt);
 
     // target speed
-    const L = train.loopLen;
     let target = this.frozen || this.hold ? 0 : this.cruise;
-    if (!this.frozen && !this.hold && this.stopAtStation && !train.onSpur) {
-      if (this.atStation) {
-        target = 0;
-      } else {
-        const dist = L - train.s;
-        if (dist < 8) target = Math.max(0.9, (this.cruise * dist) / 8);
-      }
+    if (!this.frozen && !this.hold && !this.reverse && this.stopAt !== null && !train.onSpur) {
+      const dist = this.stopAt - train.s;
+      target = Math.min(target, Math.max(0.6, (Math.abs(this.cruise) * dist) / 9));
     }
     if (this.frozen) {
       train.speed = 0;
-    } else if (train.speed < target) {
-      const acc = this.phase === 5 ? 2.4 : this.phase === 1 ? 3 : 7;
-      train.speed = Math.min(target, train.speed + acc * dt);
     } else {
-      train.speed = Math.max(target, train.speed - 14 * dt);
+      const acc = this.reverse ? 6 : this.phase <= 1 ? 2.2 : this.phase === 5 ? 4.5 : this.phase >= 6 ? 4 : 5.5;
+      const speeding = Math.abs(target) > Math.abs(train.speed);
+      train.speed = approach(train.speed, target, (speeding ? acc : 12) * dt);
     }
 
     let v = train.speed;
-    if (this.phase === 1 && !this.hold) v *= 0.5 + 0.5 * Math.abs(Math.sin(this.time * 2.4));
+    if (this.pushing) {
+      const ph = this.time * 2.3;
+      v *= 0.35 + 0.65 * Math.abs(Math.sin(ph));
+      human.pushPhase = ph * 2 - Math.PI / 2;
+    }
 
-    if (!this.frozen && v > 0) {
+    if (!this.frozen && v !== 0) {
       if (train.onSpur) {
         train.spurS += v * dt;
-        if (train.spurS >= train.spurLen - 0.5) {
-          train.spurS = train.spurLen - 0.5;
+        if (train.spurS >= train.spurLen - 0.7) {
+          train.spurS = train.spurLen - 0.7;
           this.onSpurBump();
         }
       } else {
         const s0 = train.s;
         let s1 = s0 + v * dt;
-        if (this.stopAtStation && !this.atStation && s1 >= L - 0.02) {
-          s1 = L;
-          train.speed = 0;
-          this.atStation = true;
-        }
-        for (const h of world.crossed(s0, s1)) {
-          if (this.onHazard(h)) {
-            s1 = h.s;
-            break;
+        const sw = world.byId.switch.s;
+        if (this.takeSpur && s0 < sw && s1 >= sw) {
+          train.onSpur = true;
+          train.spurAnchorS = sw;
+          train.spurS = s1 - sw;
+          train.s = sw;
+        } else {
+          if (this.stopAt !== null && !this.reverse && s1 >= this.stopAt) {
+            s1 = this.stopAt;
+            train.speed = 0;
           }
+          s1 = Math.max(0, Math.min(world.mainLen - 0.01, s1));
+          if (v > 0) for (const h of world.crossed(s0, s1)) if (h.installed) world.passFlash(h);
+          train.s = s1;
         }
-        if (s1 >= L) {
-          s1 -= L;
-          this.onLap();
-        }
-        train.s = s1;
       }
     }
+
+    // shaking on the bumpy stretch, camera speed feel, streaks
+    const fast = this.cruiseFor(6);
+    const slow = this.cruiseFor(2) * 0.9;
+    const speedK = clamp01((Math.abs(train.speed) - slow) / (fast - slow));
+    rig.speedK = this.phase === PHASE_COUNT - 1 ? 0 : speedK;
+    const wantShake = !train.onSpur && world.inBump(train.s) ? clamp01(Math.abs(train.speed) / this.cruiseFor(2)) : 0;
+    this.shake += (wantShake - this.shake) * Math.min(1, dt * 10);
+    train.shake = this.shake;
 
     train.update(dt);
     human.update(dt);
     world.update(dt);
 
-    if (this.phase === 1 && this.humanMode === 'push' && !this.hold) {
+    const p = train.worldPos(this.v1);
+    const f = train.forward(this.v2);
+    const r = train.right(this.v3);
+    world.fx.updateStreaks(dt, p, f, r, speedK);
+    rim.position.copy(p).addScaledVector(f, 2).addScaledVector(r, -7).add(new THREE.Vector3(0, 9, 0));
+    rim.target.position.copy(p);
+
+    if (this.pushing) {
       this.sweatTimer -= dt;
       if (this.sweatTimer <= 0) {
-        this.sweatTimer = 0.28;
+        this.sweatTimer = 0.3;
         const hp = human.headPos(this.v1);
         hp.y += 0.1;
         world.fx.emitSweat(hp);
       }
     }
-
-    // Watchdog: in phases 1-5 the human must be on the train whenever no choreography is running.
-    if (this.phase >= 1 && this.phase <= 5 && this.humanMode === 'free' && !this.seq.running && !this.derailing && !this.hold) {
-      this.snapHuman(this.phase);
-    }
-
-    this.trustShown += (this.trust - this.trustShown) * Math.min(1, dt * 3);
-    hud.setTrust(this.trustShown);
   }
 }

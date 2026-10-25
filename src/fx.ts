@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { COLORS } from './config';
 import { ease, tweens } from './tween';
+import { canvasTexture, Z } from './util3d';
 
 /** Scale an object in from nothing (also makes it visible). */
 export function pop(obj: THREE.Object3D, d = 0.5, to = 1): void {
@@ -16,16 +17,7 @@ export function unpop(obj: THREE.Object3D, d = 0.3): void {
   });
 }
 
-/** Show or hide with a pop, idempotent. */
-export function show(obj: THREE.Object3D, on: boolean, d = 0.5, to = 1): void {
-  if (on) {
-    if (!obj.visible || obj.scale.x < to * 0.98) pop(obj, d, to);
-  } else if (obj.visible) {
-    unpop(obj, d * 0.6);
-  }
-}
-
-/** Snap visibility without animation (used when jumping between phases). */
+/** Snap visibility without animation. */
 export function snapShow(obj: THREE.Object3D, on: boolean, to = 1): void {
   tweens.kill(obj.scale);
   obj.visible = on;
@@ -38,51 +30,81 @@ interface Particle {
   life: number;
   max: number;
   base: number;
+  gravity: number;
 }
 
 function makeVerdictTexture(ok: boolean): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = ok ? '#3fb66b' : '#e35b5b';
-  g.beginPath();
-  g.arc(64, 64, 58, 0, Math.PI * 2);
-  g.fill();
-  g.strokeStyle = '#ffffff';
-  g.lineWidth = 14;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  g.beginPath();
-  if (ok) {
-    g.moveTo(34, 66);
-    g.lineTo(56, 88);
-    g.lineTo(96, 44);
-  } else {
-    g.moveTo(42, 42);
-    g.lineTo(86, 86);
-    g.moveTo(86, 42);
-    g.lineTo(42, 86);
-  }
-  g.stroke();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  return canvasTexture(128, (g) => {
+    g.fillStyle = ok ? '#3fb66b' : '#e35b5b';
+    g.beginPath();
+    g.arc(64, 64, 58, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 14;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.beginPath();
+    if (ok) {
+      g.moveTo(34, 66);
+      g.lineTo(56, 88);
+      g.lineTo(96, 44);
+    } else {
+      g.moveTo(42, 42);
+      g.lineTo(86, 86);
+      g.moveTo(86, 42);
+      g.lineTo(42, 86);
+    }
+    g.stroke();
+  });
 }
+
+interface Streak {
+  m: THREE.Mesh;
+  a: number;
+  r: number;
+  u: number;
+}
+
+const STREAKS = 18;
 
 export class Fx {
   readonly group = new THREE.Group();
   private readonly dust: Particle[] = [];
   private readonly sweat: Particle[] = [];
+  private readonly sparks: Particle[] = [];
   private readonly rings: { m: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number }[] = [];
   private readonly sprites: { s: THREE.Sprite; mat: THREE.SpriteMaterial; life: number }[] = [];
+  private readonly streaks: Streak[] = [];
+  private readonly streakMat: THREE.MeshBasicMaterial;
 
-  private readonly dustGeo = new THREE.SphereGeometry(0.22, 6, 5);
-  private readonly sweatGeo = new THREE.SphereGeometry(0.09, 6, 5);
-  private readonly ringGeo = new THREE.RingGeometry(0.5, 0.78, 32);
-  private readonly dustMat = new THREE.MeshStandardMaterial({ color: COLORS.dust, roughness: 1 });
-  private readonly sweatMat = new THREE.MeshStandardMaterial({ color: COLORS.sweat, roughness: 0.35 });
+  private readonly dustGeo = new THREE.SphereGeometry(0.22, 10, 8);
+  private readonly sweatGeo = new THREE.SphereGeometry(0.09, 10, 8);
+  private readonly sparkGeo = new THREE.SphereGeometry(0.06, 6, 5);
+  private readonly ringGeo = new THREE.RingGeometry(0.5, 0.78, 40);
+  private readonly dustMat = new THREE.MeshStandardMaterial({ color: COLORS.dust, roughness: 1, emissive: 0x201d1a });
+  private readonly sweatMat = new THREE.MeshStandardMaterial({ color: COLORS.sweat, roughness: 0.3, emissive: 0x1a4466 });
+  private readonly sparkMat = new THREE.MeshBasicMaterial({ color: COLORS.spark });
   private readonly okTex = makeVerdictTexture(true);
   private readonly badTex = makeVerdictTexture(false);
+
+  constructor() {
+    this.streakMat = new THREE.MeshBasicMaterial({ color: COLORS.streak, transparent: true, opacity: 0, depthWrite: false });
+    const geo = new THREE.BoxGeometry(0.035, 0.035, 1);
+    for (let i = 0; i < STREAKS; i++) {
+      const m = new THREE.Mesh(geo, this.streakMat);
+      m.visible = false;
+      this.group.add(m);
+      this.streaks.push({ m, a: Math.random() * 40 - 8, r: 0, u: 0 });
+      this.respawnStreak(this.streaks[i], false);
+    }
+  }
+
+  private respawnStreak(s: Streak, ahead: boolean): void {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    s.r = side * (1.8 + Math.random() * 6);
+    s.u = 0.3 + Math.random() * 4.5;
+    if (ahead) s.a = 26 + Math.random() * 14;
+  }
 
   burstDust(pos: THREE.Vector3, n = 10, strength = 1): void {
     for (let i = 0; i < n; i++) {
@@ -92,7 +114,7 @@ export class Fx {
       const base = 0.5 + Math.random() * 0.7;
       m.scale.setScalar(base);
       this.group.add(m);
-      this.dust.push({ m, vel, life: 0, max: 0.8 + Math.random() * 0.5, base });
+      this.dust.push({ m, vel, life: 0, max: 0.8 + Math.random() * 0.5, base, gravity: 2.5 });
     }
   }
 
@@ -101,7 +123,21 @@ export class Fx {
     m.position.copy(pos);
     const vel = new THREE.Vector3((Math.random() - 0.5) * 2.2, 1.6 + Math.random(), (Math.random() - 0.5) * 2.2);
     this.group.add(m);
-    this.sweat.push({ m, vel, life: 0, max: 1.1, base: 1 });
+    this.sweat.push({ m, vel, life: 0, max: 1.1, base: 1, gravity: 9 });
+  }
+
+  /** Sparks flying off wheels that scrape a guardrail. */
+  emitSparks(pos: THREE.Vector3, back: THREE.Vector3, n = 6): void {
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(this.sparkGeo, this.sparkMat);
+      m.position.copy(pos).add(new THREE.Vector3((Math.random() - 0.5) * 0.4, Math.random() * 0.2, (Math.random() - 0.5) * 0.4));
+      const vel = back
+        .clone()
+        .multiplyScalar(3 + Math.random() * 5)
+        .add(new THREE.Vector3((Math.random() - 0.5) * 3, 1.5 + Math.random() * 3, (Math.random() - 0.5) * 3));
+      this.group.add(m);
+      this.sparks.push({ m, vel, life: 0, max: 0.35 + Math.random() * 0.3, base: 1, gravity: 12 });
+    }
   }
 
   flash(pos: THREE.Vector3, color: number = COLORS.flash): void {
@@ -123,28 +159,53 @@ export class Fx {
     this.sprites.push({ s, mat, life: 0 });
   }
 
-  update(dt: number): void {
-    for (let i = this.dust.length - 1; i >= 0; i--) {
-      const p = this.dust[i];
-      p.life += dt;
-      p.vel.y -= 2.5 * dt;
-      p.m.position.addScaledVector(p.vel, dt);
-      const k = p.life / p.max;
-      const s = p.base * (1 + k * 1.3) * Math.max(0, 1 - k * k);
-      p.m.scale.setScalar(Math.max(0.001, s));
-      if (p.life >= p.max) {
-        this.group.remove(p.m);
-        this.dust.splice(i, 1);
-      }
+  /** Remove every live particle (phase reset). */
+  clear(): void {
+    for (const list of [this.dust, this.sweat, this.sparks]) {
+      for (const p of list) this.group.remove(p.m);
+      list.length = 0;
     }
-    for (let i = this.sweat.length - 1; i >= 0; i--) {
-      const p = this.sweat[i];
-      p.life += dt;
-      p.vel.y -= 9 * dt;
-      p.m.position.addScaledVector(p.vel, dt);
-      if (p.life >= p.max || p.m.position.y < 0.05) {
-        this.group.remove(p.m);
-        this.sweat.splice(i, 1);
+    for (const r of this.rings) this.group.remove(r.m);
+    this.rings.length = 0;
+    for (const v of this.sprites) this.group.remove(v.s);
+    this.sprites.length = 0;
+    this.streakMat.opacity = 0;
+    for (const s of this.streaks) s.m.visible = false;
+  }
+
+  /** Thin white lines that rush past the train at speed. */
+  updateStreaks(dt: number, pos: THREE.Vector3, tan: THREE.Vector3, right: THREE.Vector3, speedK: number): void {
+    const vis = Math.max(0, Math.min(1, (speedK - 0.5) * 2.5));
+    this.streakMat.opacity += (vis * 0.38 - this.streakMat.opacity) * Math.min(1, dt * 4);
+    const on = this.streakMat.opacity > 0.01;
+    for (const s of this.streaks) {
+      s.m.visible = on;
+      if (!on) continue;
+      s.a -= speedK * 34 * dt;
+      if (s.a < -10) this.respawnStreak(s, true);
+      s.m.position.copy(pos).addScaledVector(tan, s.a).addScaledVector(right, s.r);
+      s.m.position.y = pos.y + s.u;
+      s.m.quaternion.setFromUnitVectors(Z, tan);
+      s.m.scale.z = 1.2 + speedK * 2.4;
+    }
+  }
+
+  update(dt: number): void {
+    for (const list of [this.dust, this.sweat, this.sparks]) {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const p = list[i];
+        p.life += dt;
+        p.vel.y -= p.gravity * dt;
+        p.m.position.addScaledVector(p.vel, dt);
+        if (list === this.dust) {
+          const k = p.life / p.max;
+          const s = p.base * (1 + k * 1.3) * Math.max(0, 1 - k * k);
+          p.m.scale.setScalar(Math.max(0.001, s));
+        }
+        if (p.life >= p.max || (list !== this.dust && p.m.position.y < 0.02)) {
+          this.group.remove(p.m);
+          list.splice(i, 1);
+        }
       }
     }
     for (let i = this.rings.length - 1; i >= 0; i--) {
@@ -162,11 +223,11 @@ export class Fx {
     for (let i = this.sprites.length - 1; i >= 0; i--) {
       const v = this.sprites[i];
       v.life += dt;
-      v.s.position.y += dt * 0.6;
+      v.s.position.y += dt * 0.5;
       const k = Math.min(1, v.life / 0.3);
-      v.s.scale.setScalar(Math.max(0.001, 1.7 * ease.outBack(k)));
-      v.mat.opacity = v.life < 1.1 ? 1 : Math.max(0, 1 - (v.life - 1.1) / 0.4);
-      if (v.life >= 1.5) {
+      v.s.scale.setScalar(Math.max(0.001, 1.5 * ease.outBack(k)));
+      v.mat.opacity = v.life < 1.6 ? 1 : Math.max(0, 1 - (v.life - 1.6) / 0.4);
+      if (v.life >= 2.0) {
         this.group.remove(v.s);
         v.mat.dispose();
         this.sprites.splice(i, 1);

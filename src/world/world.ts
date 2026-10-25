@@ -1,453 +1,330 @@
 import * as THREE from 'three';
-import { COLORS, MOTION } from '../config';
-import { Fx, show, snapShow } from '../fx';
+import { COLORS } from '../config';
+import { Fx, pop, snapShow } from '../fx';
+import { box, cyl, mat, metal, sphere, wood, Z } from '../util3d';
 import { ease, tweens } from '../tween';
-import { box, cyl, mat, rng, sphere, Z } from '../util3d';
-import type { DerailPose } from '../actors/train';
 import {
-  GlowLine,
-  makeBuilding,
-  makeGrassPatches,
-  makeGround,
-  makeHouse,
-  makeSignal,
-  makeStation,
-  makeTree,
-  PLATFORM_TOP,
-  treeSpots,
-} from './scenery';
-import {
-  distanceToCurve,
   frameAt,
   makeFence,
-  makeLoop,
+  makeMain,
   makeRibbon,
   makeSpurCurve,
   nearestU,
   newFrame,
   RailLine,
+  RAIL_TOP,
+  type Frame,
   type Zone,
 } from './track';
 
-export type HazardId = 'curve' | 'bump' | 'switch' | 'gap';
+export type HazardId = 'bump' | 'switch' | 'curve' | 'gap';
+
+export interface DerailPose {
+  lat: number;
+  lift: number;
+  roll: number;
+  pitch: number;
+  yaw: number;
+}
 
 export interface Hazard {
   id: HazardId;
-  index: number;
-  /** Arc-length parameter and loop distance where a derail triggers. */
-  u: number;
+  /** Distance along the main line where the train derails (or where the switch sits). */
   s: number;
-  zone: Zone;
-  speedHazard: boolean;
-  base: boolean;
-  strong: boolean;
-  baseGroup: THREE.Group;
-  strongGroup: THREE.Group;
-  derailPose: DerailPose;
-  violentPose: DerailPose;
+  pos: THREE.Vector3;
+  frame: Frame;
+  pose: DerailPose;
+  /** How far past the hazard the loco is set after a fix. */
+  clear: number;
+  guard: THREE.Group | null;
+  guardMat: THREE.MeshStandardMaterial | null;
+  installed: boolean;
+  glow: number;
 }
 
-/** How many trees are visible per phase. */
-const TREES = [12, 12, 18, 26, 32, 38, 44, 48, 48];
+const GUARD_BASE = 0.55;
 
 export class World {
   readonly group = new THREE.Group();
-  readonly loop: THREE.CatmullRomCurve3;
-  readonly loopLen: number;
+  readonly fx = new Fx();
+  readonly main: THREE.CatmullRomCurve3;
+  readonly mainLen: number;
   readonly rails: RailLine;
   readonly spurCurve: THREE.CatmullRomCurve3;
   readonly spurLen: number;
   readonly hazards: Hazard[] = [];
-  readonly fx = new Fx();
-  readonly guardMat: THREE.MeshStandardMaterial;
-
+  readonly byId: Record<HazardId, Hazard>;
+  readonly bumpZone: Zone;
+  /** Loco distance when stopped at B. */
+  readonly stopS: number;
   readonly spots: {
-    title: THREE.Vector3;
-    watch: THREE.Vector3;
-    platform: THREE.Vector3;
-    inspect: THREE.Vector3;
-    stack: THREE.Vector3;
+    /** Where the human waits for the self-driving train (on the slab). */
+    waitAtB: THREE.Vector3;
+    /** Where the human stands beside the lever. */
     lever: THREE.Vector3;
+    /** Two slab slots for accepted crates. */
+    crates: THREE.Vector3[];
+    slabTop: number;
   };
+  /** Set by the director: brighter guardrails on the end screen. */
+  endGlow = false;
 
+  private readonly spurRails: RailLine;
   private readonly spurGroup = new THREE.Group();
-  private readonly office: THREE.Group;
-  private readonly library: THREE.Group;
-  private readonly glowGroup = new THREE.Group();
-  private readonly glowLines: GlowLine[] = [];
-  private readonly ballast: THREE.Mesh;
-  private readonly ballastMat: THREE.MeshStandardMaterial;
-  private readonly signals: THREE.Group[] = [];
-  private readonly trees: THREE.Group[] = [];
-  private readonly houses: THREE.Group[] = [];
-  private readonly ditch: THREE.Mesh;
   private readonly lever: THREE.Group;
-  private readonly leverArm: THREE.Mesh;
-  private readonly trackState = { crooked: 1, bumpAmp: 1 };
-  private applied = { crooked: -1, bumpAmp: -1 };
-  private phase = 0;
-  private t = 0;
+  private readonly f = newFrame();
+  private lastReveal = -1;
 
   constructor(scene: THREE.Scene) {
-    scene.add(this.group);
-    this.loop = makeLoop();
-    this.loopLen = this.loop.getLength();
-    const L = this.loopLen;
+    this.main = makeMain();
+    this.mainLen = this.main.getLength();
+    const L = this.mainLen;
 
-    this.guardMat = new THREE.MeshStandardMaterial({ color: COLORS.guard, emissive: COLORS.guard, emissiveIntensity: 0, roughness: 0.8, flatShading: true });
+    // Mud path (the "road" of phase 1): barely-there brown under the rails.
+    const mudMat = new THREE.MeshStandardMaterial({ color: COLORS.mud, roughness: 1, transparent: true, opacity: 0.3, depthWrite: false, emissive: 0x1a120b });
+    this.group.add(makeRibbon(this.main, 2.6, 0.012, mudMat));
 
-    this.group.add(makeGround(), makeGrassPatches(7));
-
-    // ---- main line
-    this.rails = new RailLine(this.loop, true, 11);
+    this.rails = new RailLine(this.main, 7);
     this.group.add(this.rails.group);
-    this.ballast = makeRibbon(this.loop, 2.7, true, 0.012);
-    this.ballastMat = this.ballast.material as THREE.MeshStandardMaterial;
-    this.ballastMat.opacity = 0;
-    this.ballast.visible = false;
-    this.group.add(this.ballast);
 
-    // ---- hazards: positions along the loop
-    const uCurve = nearestU(this.loop, 19.6, -10.5);
-    const uBump = nearestU(this.loop, 0, -13.6);
-    const uSwitch = nearestU(this.loop, -8, -13.6);
-    const uGap = nearestU(this.loop, -20.1, -1);
-    const span = (units: number) => units / L;
+    // Hazard positions
+    const uBump0 = nearestU(this.main, 0, -19);
+    const uBump1 = nearestU(this.main, 0, -31);
+    this.bumpZone = { u0: Math.min(uBump0, uBump1), u1: Math.max(uBump0, uBump1) };
+    this.rails.bumpZone = this.bumpZone;
+    this.rails.bumpAmp = 1;
+    const uSwitch = nearestU(this.main, 0, -40);
+    const uCurve = nearestU(this.main, 5.6, -59.2);
+    const gapCenterU = nearestU(this.main, 32.5, -64.6);
+    const gapHalf = 1.1 / L;
+    this.rails.gapZone = { u0: gapCenterU - gapHalf, u1: gapCenterU + gapHalf };
 
-    // ---- spur
-    this.spurCurve = makeSpurCurve(this.loop, uSwitch);
+    // Siding
+    this.spurCurve = makeSpurCurve(this.main, uSwitch);
     this.spurLen = this.spurCurve.getLength();
-    const spurRails = new RailLine(this.spurCurve, false, 23);
-    this.spurGroup.add(spurRails.group);
-    const endF = frameAt(this.spurCurve, 1, newFrame(), false);
-    const buffer = new THREE.Group();
-    const beam = box(1.7, 0.45, 0.25, COLORS.bad);
-    beam.position.y = 0.62;
-    buffer.add(beam);
-    for (const x of [-0.5, 0.5]) {
-      const stripe = box(0.22, 0.47, 0.27, COLORS.paper);
-      stripe.position.set(x, 0.62, 0);
-      buffer.add(stripe);
-      const post = box(0.16, 0.75, 0.16, COLORS.signalPost);
-      post.position.set(x * 1.4, 0.37, -0.2);
-      buffer.add(post);
-    }
-    buffer.position.copy(endF.pos);
-    buffer.quaternion.setFromUnitVectors(Z, endF.tan);
-    this.spurGroup.add(buffer);
+    this.spurRails = new RailLine(this.spurCurve, 3);
+    this.spurGroup.add(this.spurRails.group);
+    this.spurGroup.add(makeRibbon(this.spurCurve, 2.1, 0.011, mudMat, 120, 0.08, 1));
+    const spurEnd = frameAt(this.spurCurve, 1, newFrame());
+    this.spurGroup.add(this.makeBuffer(spurEnd));
     this.group.add(this.spurGroup);
 
-    // switch lever, on the inside of the loop next to the switch
-    const swF = frameAt(this.loop, uSwitch, newFrame());
-    const leverPos = swF.pos.clone().addScaledVector(swF.right, -1.6);
-    this.lever = new THREE.Group();
-    const base = box(0.5, 0.16, 0.5, COLORS.signalPost);
-    base.position.y = 0.08;
-    this.lever.add(base);
-    this.leverArm = cyl(0.05, 0.06, 0.8, COLORS.wheel, 8);
-    this.leverArm.position.y = 0.4;
-    const knob = sphere(0.12, COLORS.bad, 8);
-    knob.position.y = 0.42;
-    this.leverArm.add(knob);
-    this.leverArm.rotation.z = 0.55;
-    this.lever.add(this.leverArm);
-    this.lever.position.copy(leverPos);
-    this.lever.quaternion.setFromUnitVectors(Z, swF.tan);
+    // Lever beside the switch, on the camera side
+    const sw = frameAt(this.main, uSwitch, newFrame());
+    this.lever = this.makeLever();
+    this.lever.position.copy(sw.pos).addScaledVector(sw.right, 1.7);
+    this.lever.quaternion.setFromUnitVectors(Z, sw.tan);
     this.spurGroup.add(this.lever);
 
-    // the gap: a ditch under the rails, no sleepers there
-    const gapZone: Zone = { u0: uGap - span(1.4), u1: uGap + span(1.4) };
-    this.rails.noSleeperZones = [gapZone];
-    const gapF = frameAt(this.loop, uGap, newFrame());
-    this.ditch = box(2.2, 0.05, 2.8, COLORS.ditch, { flatShading: false, roughness: 0.3 });
-    this.ditch.position.copy(gapF.pos);
-    this.ditch.position.y = 0.02;
-    this.ditch.quaternion.setFromUnitVectors(Z, gapF.tan);
-    this.ditch.rotateY(Math.PI / 2);
-    this.ditch.receiveShadow = true;
-    this.group.add(this.ditch);
+    // Destination slab at B, alongside the last stretch on the right
+    this.stopS = L - 2.2;
+    const end = frameAt(this.main, this.stopS / L, newFrame());
+    const slabTop = 0.3;
+    const slab = box(2.4, slabTop, 7.5, COLORS.slab, mat(COLORS.slab, { roughness: 0.95, emissive: 0x0d0e11 }));
+    slab.position.copy(end.pos).addScaledVector(end.right, 2.3).addScaledVector(end.tan, -1.2);
+    slab.position.y = slabTop / 2;
+    slab.quaternion.setFromUnitVectors(Z, end.tan);
+    this.group.add(slab);
+    const edge = box(0.08, 0.03, 7.5, COLORS.slabEdge, mat(COLORS.slabEdge, { emissive: 0xffffff, emissiveIntensity: 0.6 }));
+    edge.position.copy(end.pos).addScaledVector(end.right, 1.14).addScaledVector(end.tan, -1.2);
+    edge.position.y = slabTop + 0.015;
+    edge.quaternion.copy(slab.quaternion);
+    this.group.add(edge);
 
-    // the bumpy stretch
-    const bumpZone: Zone = { u0: uBump - span(4), u1: uBump + span(4) };
-    this.rails.bumpZone = bumpZone;
-
-    // ---- hazard records with their guardrails
-    const curveZone: Zone = { u0: uCurve - span(4), u1: uCurve + span(3.5) };
-    const switchZone: Zone = { u0: uSwitch - span(1), u1: uSwitch + span(2) };
-    const guard = this.guardMat;
-
-    const curveBase = makeFence(this.loop, curveZone, 1, 1.4, 0.75, guard);
-    const curveStrong = new THREE.Group();
-    curveStrong.add(makeFence(this.loop, curveZone, -1, 1.15, 0.5, guard));
-    curveStrong.add(this.chevrons(curveZone, 3));
-
-    const bumpBase = makeFence(this.loop, bumpZone, 1, 1.4, 0.6, guard, true, 1.0);
-    const bumpStrong = makeFence(this.loop, bumpZone, -1, 1.15, 0.6, guard, true, 1.0);
-
-    const switchBase = new THREE.Group();
-    const barF = frameAt(this.spurCurve, 1.6 / this.spurLen, newFrame(), false);
-    const bar = new THREE.Group();
-    const barBeam = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.14, 0.14), guard);
-    barBeam.position.y = 0.7;
-    barBeam.castShadow = true;
-    bar.add(barBeam);
-    for (const x of [-0.9, 0.9]) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.8, 0.14), guard);
-      p.position.set(x, 0.4, 0);
-      p.castShadow = true;
-      bar.add(p);
-    }
-    bar.position.copy(barF.pos);
-    bar.quaternion.setFromUnitVectors(Z, barF.tan);
-    switchBase.add(bar);
-    const lock = new THREE.Group();
-    const lockBody = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.16), guard);
-    lock.add(lockBody);
-    const shackle = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.03, 6, 12, Math.PI), mat(COLORS.signalPost));
-    shackle.position.y = 0.16;
-    lock.add(shackle);
-    lock.position.copy(leverPos).add(new THREE.Vector3(0, 0.35, 0));
-    switchBase.add(lock);
-    const switchStrong = new THREE.Group();
-
-    const gapBase = new THREE.Group();
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 3.2), guard);
-    plate.position.copy(gapF.pos);
-    plate.position.y = 0.05;
-    plate.quaternion.setFromUnitVectors(Z, gapF.tan);
-    plate.castShadow = true;
-    plate.receiveShadow = true;
-    gapBase.add(plate);
-    gapBase.add(makeFence(this.loop, gapZone, 1, 1.4, 0.6, guard, true, 0.9));
-    const gapStrong = new THREE.Group();
-
-    const defs: [HazardId, number, Zone, boolean, THREE.Group, THREE.Group, DerailPose, DerailPose][] = [
-      [
-        'curve',
-        uCurve,
-        curveZone,
-        true,
-        curveBase,
-        curveStrong,
-        { lat: 1.0, lift: -0.05, roll: -0.6, pitch: 0, yaw: 0.25 },
-        { lat: 1.7, lift: 0.1, roll: -1.15, pitch: 0.05, yaw: 0.5 },
-      ],
-      [
-        'bump',
-        uBump,
-        bumpZone,
-        true,
-        bumpBase,
-        bumpStrong,
-        { lat: -0.55, lift: 0.05, roll: 0.5, pitch: 0.1, yaw: -0.2 },
-        { lat: -1.1, lift: 0.12, roll: 0.95, pitch: 0.15, yaw: -0.45 },
-      ],
-      [
-        'switch',
-        uSwitch,
-        switchZone,
-        false,
-        switchBase,
-        switchStrong,
-        { lat: 0, lift: 0.06, roll: 0.08, pitch: 0.14, yaw: 0.05 },
-        { lat: 0, lift: 0.1, roll: 0.15, pitch: 0.25, yaw: 0.1 },
-      ],
-      [
-        'gap',
-        uGap,
-        gapZone,
-        false,
-        gapBase,
-        gapStrong,
-        { lat: 0.15, lift: -0.42, roll: 0.22, pitch: 0.35, yaw: 0 },
-        { lat: 0.4, lift: -0.5, roll: 0.5, pitch: 0.5, yaw: 0.1 },
-      ],
-    ];
-    defs.forEach(([id, u, zone, speedHazard, baseGroup, strongGroup, derailPose, violentPose], index) => {
-      snapShow(baseGroup, false);
-      snapShow(strongGroup, false);
-      this.group.add(baseGroup, strongGroup);
-      this.hazards.push({ id, index, u, s: u * L, zone, speedHazard, base: false, strong: false, baseGroup, strongGroup, derailPose, violentPose });
-    });
-
-    // ---- station, buildings, signals
-    this.group.add(makeStation());
-    this.office = makeBuilding('office');
-    this.office.position.set(7.6, 0, 17.6);
-    this.library = makeBuilding('library');
-    this.library.position.set(13.2, 0, 17.6);
-    this.group.add(this.office, this.library);
-
-    const trackPt = (x: number, z: number) => this.loop.getPointAt(nearestU(this.loop, x, z)).setY(0.3);
-    this.glowLines.push(new GlowLine(new THREE.Vector3(6.6, 1.2, 15.8), trackPt(4, 11.2).add(new THREE.Vector3(0, 0, 0.9))));
-    this.glowLines.push(new GlowLine(new THREE.Vector3(12.6, 1.0, 15.8), trackPt(10, 10.8).add(new THREE.Vector3(0.6, 0, 0.7))));
-    for (const gl of this.glowLines) this.glowGroup.add(gl.group);
-    this.group.add(this.glowGroup);
-
-    const sf = newFrame();
-    for (const u of [0.08, 0.3, 0.46, 0.62, 0.78, 0.92]) {
-      frameAt(this.loop, u, sf);
-      const sig = makeSignal();
-      sig.position.copy(sf.pos).addScaledVector(sf.right, 1.7);
-      sig.quaternion.setFromUnitVectors(Z, sf.tan.clone().negate());
-      this.signals.push(sig);
-      this.group.add(sig);
-    }
-
-    // ---- trees and houses
-    const housePositions: [number, number, number][] = [
-      [-27, 0, 7],
-      [-28, 0, -7],
-      [27, 0, -3],
-      [16, 0, -22],
-    ];
-    const hr = rng(5);
-    for (const [x, y, z] of housePositions) {
-      const h = makeHouse(hr);
-      h.position.set(x, y, z);
-      h.rotation.y = hr() * Math.PI * 2;
-      this.houses.push(h);
-      this.group.add(h);
-    }
-    const avoid = (x: number, z: number): boolean => {
-      if (x > -9 && x < 18 && z > 11.5 && z < 22) return true; // station and buildings
-      if (distanceToCurve(this.spurCurve, x, z, 60) < 3) return true;
-      return housePositions.some(([hx, , hz]) => Math.hypot(hx - x, hz - z) < 4.5);
+    this.spots = {
+      waitAtB: end.pos.clone().addScaledVector(end.right, 2.2).addScaledVector(end.tan, -0.6).setY(slabTop),
+      lever: sw.pos.clone().addScaledVector(sw.right, 1.1).addScaledVector(sw.tan, -0.5).setY(0),
+      crates: [0, 1].map((i) => end.pos.clone().addScaledVector(end.right, 2.75).addScaledVector(end.tan, -3.2 - i * 1.0).setY(slabTop + 0.36)),
+      slabTop,
     };
-    const tr = rng(3);
-    for (const p of treeSpots(this.loop, TREES[TREES.length - 1], 42, avoid)) {
-      const t = makeTree(tr);
-      t.position.copy(p);
-      this.trees.push(t);
-      this.group.add(t);
+
+    // Hazards and their guardrails
+    const H = (id: HazardId, u: number, pose: DerailPose, clear: number): Hazard => {
+      const frame = frameAt(this.main, u, newFrame());
+      const h: Hazard = { id, s: u * L, pos: frame.pos.clone(), frame, pose, clear, guard: null, guardMat: null, installed: false, glow: 0 };
+      this.hazards.push(h);
+      return h;
+    };
+    const bump = H('bump', (this.bumpZone.u0 + this.bumpZone.u1) / 2, { lat: -0.7, lift: -0.05, roll: -0.9, pitch: 0.05, yaw: -0.3 }, 1.2);
+    const sw2 = H('switch', uSwitch, { lat: 0, lift: 0.08, roll: 0.05, pitch: -0.18, yaw: 0 }, 0);
+    const curve = H('curve', uCurve, { lat: -0.9, lift: -0.12, roll: -0.95, pitch: 0.02, yaw: -0.3 }, 1.4);
+    const gap = H('gap', gapCenterU - gapHalf - 0.35 / L, { lat: 0, lift: -0.6, roll: 0.08, pitch: 0.55, yaw: 0 }, 3.4);
+    this.hazards.sort((a, b) => a.s - b.s);
+    this.byId = { bump, switch: sw2, curve, gap };
+
+    const guardMat = (): THREE.MeshStandardMaterial =>
+      new THREE.MeshStandardMaterial({ color: COLORS.guard, emissive: COLORS.guard, emissiveIntensity: GUARD_BASE, roughness: 0.5 });
+
+    // Bump guardrail: levelled track shown as yellow sleepers through the stretch
+    bump.guardMat = guardMat();
+    bump.guard = this.makeBumpGuard(bump.guardMat);
+    // Curve guardrail: fence on the outside (left) of the bend
+    curve.guardMat = guardMat();
+    curve.guard = makeFence(this.main, { u0: nearestU(this.main, 0.6, -50), u1: nearestU(this.main, 14.5, -63.6) }, -1, 1.45, 0.8, curve.guardMat, 0.9);
+    // Gap guardrail: a bridge plate with rail stubs
+    gap.guardMat = guardMat();
+    gap.guard = this.makeBridge(gapCenterU, gapHalf * 2 * L, gap.guardMat);
+    for (const h of this.hazards) {
+      if (!h.guard) continue;
+      h.guard.visible = false;
+      h.guard.scale.setScalar(0.001);
+      this.group.add(h.guard);
     }
 
     this.group.add(this.fx.group);
-
-    const leverGround = leverPos.clone().addScaledVector(swF.right, -1.0);
-    leverGround.y = 0;
-    this.spots = {
-      title: new THREE.Vector3(1.6, PLATFORM_TOP, 13.0),
-      watch: new THREE.Vector3(2.9, PLATFORM_TOP, 13.1),
-      platform: new THREE.Vector3(-1.5, PLATFORM_TOP, 13.3),
-      inspect: new THREE.Vector3(-3.3, PLATFORM_TOP + 0.36, 13.1),
-      stack: new THREE.Vector3(-4.7, PLATFORM_TOP + 0.36, 13.6),
-      lever: leverGround,
-    };
-
-    this.setPhase(0, false);
+    scene.add(this.group);
   }
 
-  private chevrons(zone: Zone, n: number): THREE.Group {
+  private makeBuffer(f: Frame): THREE.Group {
     const g = new THREE.Group();
-    const f = newFrame();
-    const white = mat(COLORS.paper);
-    const red = mat(COLORS.bad);
-    for (let i = 0; i < n; i++) {
-      const u = zone.u0 + ((zone.u1 - zone.u0) * (i + 0.5)) / n;
-      frameAt(this.loop, u, f);
-      const board = new THREE.Group();
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.06), white);
-      back.castShadow = true;
-      board.add(back);
-      for (const s of [-1, 1]) {
-        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.07), red);
-        stripe.position.set(s * 0.2, 0, 0.005);
-        stripe.rotation.z = s * 0.7;
-        board.add(stripe);
-      }
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 0.1), mat(COLORS.signalPost));
-      post.position.y = -0.6;
-      board.add(post);
-      board.position.copy(f.pos).addScaledVector(f.right, 2.0);
-      board.position.y = 1.0;
-      board.quaternion.setFromUnitVectors(Z, f.right.clone().negate());
-      g.add(board);
+    const beam = box(1.6, 0.3, 0.2, COLORS.wood, wood(COLORS.woodDark));
+    beam.position.y = 0.55;
+    g.add(beam);
+    for (const x of [-0.55, 0.55]) {
+      const post = box(0.14, 0.7, 0.14, COLORS.metalDark, metal(COLORS.metalDark));
+      post.position.set(x, 0.35, -0.2);
+      g.add(post);
     }
+    g.position.copy(f.pos).addScaledVector(f.tan, 0.3);
+    g.quaternion.setFromUnitVectors(Z, f.tan);
     return g;
   }
 
-  /** World-space frame on the loop at distance s. */
-  frameAtS(s: number, out = newFrame()) {
-    return frameAt(this.loop, s / this.loopLen, out);
+  private makeLever(): THREE.Group {
+    const g = new THREE.Group();
+    const base = cyl(0.16, 0.2, 0.12, COLORS.metalDark, 16, metal(COLORS.metalDark));
+    base.position.y = 0.06;
+    g.add(base);
+    const arm = new THREE.Group();
+    arm.name = 'arm';
+    const stick = cyl(0.045, 0.05, 1.0, COLORS.lever, 12, mat(COLORS.lever, { emissive: 0x666666 }));
+    stick.position.y = 0.5;
+    arm.add(stick);
+    const knob = sphere(0.1, COLORS.lever, 16, mat(COLORS.lever, { emissive: 0x666666 }));
+    knob.position.y = 1.0;
+    arm.add(knob);
+    arm.position.y = 0.12;
+    arm.rotation.x = -0.45;
+    g.add(arm);
+    return g;
   }
 
-  /** Apply the static look of a phase. With animate=false everything snaps. */
-  setPhase(n: number, animate: boolean): void {
-    this.phase = n;
-    const d = animate ? MOTION : 0;
-    const vis = (obj: THREE.Object3D, on: boolean, delay = 0): void => {
-      if (!animate) {
-        snapShow(obj, on);
-        return;
-      }
-      if (delay > 0) setTimeout(() => show(obj, on, 0.7), delay * 1000);
-      else show(obj, on, 0.7);
-    };
-
-    tweens.to(this.trackState, { crooked: n <= 1 ? 1 : 0 }, 1.6 * d, ease.inOut);
-    vis(this.spurGroup, n >= 2, 0.9);
-    vis(this.ditch, n >= 2, 0.9);
-    vis(this.office, n >= 2, 1.2);
-    vis(this.library, n >= 3, 0.3);
-    vis(this.glowGroup, n >= 3, 0.9);
-    this.signals.forEach((s, i) => vis(s, n >= 3, 0.2 + i * 0.12));
-    this.houses.forEach((h, i) => vis(h, n >= 3, 0.4 + i * 0.15));
-    this.trees.forEach((t, i) => vis(t, i < TREES[n], (i % 7) * 0.1));
-
-    const ballastOn = n >= 3;
-    if (ballastOn) this.ballast.visible = true;
-    tweens.to(this.ballastMat, { opacity: ballastOn ? 1 : 0 }, 1.0 * d, ease.inOut, () => {
-      this.ballast.visible = ballastOn;
-    });
-
-    for (const h of this.hazards) this.setGuardrail(h, n >= 5, n >= 6, animate);
-  }
-
-  private setGuardrail(h: Hazard, base: boolean, strong: boolean, animate: boolean): void {
-    h.base = base;
-    h.strong = strong;
-    if (animate) {
-      show(h.baseGroup, base, 0.6);
-      show(h.strongGroup, strong, 0.6);
-    } else {
-      snapShow(h.baseGroup, base);
-      snapShow(h.strongGroup, strong);
+  private makeBumpGuard(m: THREE.Material): THREE.Group {
+    const g = new THREE.Group();
+    const f = this.f;
+    const n = Math.round(((this.bumpZone.u1 - this.bumpZone.u0) * this.mainLen) / 0.7);
+    const geo = new THREE.BoxGeometry(2.0, 0.12, 0.32);
+    const inst = new THREE.InstancedMesh(geo, m, n);
+    const d = new THREE.Object3D();
+    for (let i = 0; i < n; i++) {
+      frameAt(this.main, this.bumpZone.u0 + ((this.bumpZone.u1 - this.bumpZone.u0) * (i + 0.5)) / n, f);
+      d.position.copy(f.pos);
+      d.position.y = 0.04;
+      d.quaternion.setFromUnitVectors(Z, f.tan);
+      d.updateMatrix();
+      inst.setMatrixAt(i, d.matrix);
     }
-    const d = animate ? MOTION : 0;
-    if (h.id === 'bump') tweens.to(this.trackState, { bumpAmp: strong ? 0 : base ? 0.3 : 1 }, 0.9 * d, ease.inOut);
-    if (h.id === 'switch') tweens.to(this.leverArm.rotation, { z: base ? -0.55 : 0.55 }, 0.5 * d, ease.inOut);
+    g.add(inst);
+    return g;
   }
 
-  /** Install a guardrail with a flash. strong=true installs the reinforced version. */
-  installGuardrail(h: Hazard, strong: boolean): void {
-    this.setGuardrail(h, true, strong || h.strong, true);
-    const f = this.frameAtS(h.s);
-    this.fx.flash(f.pos.clone().addScaledVector(f.right, h.id === 'switch' ? -1.6 : 1.4), COLORS.guard);
-    this.fx.flash(f.pos.clone(), COLORS.flash);
+  private makeBridge(uCenter: number, len: number, m: THREE.Material): THREE.Group {
+    const g = new THREE.Group();
+    const f = frameAt(this.main, uCenter, newFrame());
+    const plate = box(1.7, 0.12, len + 1.4, COLORS.guard, m);
+    plate.position.y = 0.08;
+    g.add(plate);
+    for (const side of [-0.5, 0.5]) {
+      const stub = box(0.14, 0.14, len + 1.4, COLORS.guard, m);
+      stub.position.set(side, 0.06 + 0.07 + 0.07, 0);
+      g.add(stub);
+    }
+    g.position.copy(f.pos);
+    g.quaternion.setFromUnitVectors(Z, f.tan);
+    return g;
   }
 
-  /** Hazards whose trigger point lies in (s0, s1]. */
+  /** Track lift at distance s on the main line (riding over the bumps). */
+  liftAt(s: number): number {
+    return this.rails.reveal * this.rails.bumpAt(s / this.mainLen);
+  }
+
+  /** Hazards whose derail point lies in (s0, s1]. */
   crossed(s0: number, s1: number): Hazard[] {
     return this.hazards.filter((h) => h.s > s0 && h.s <= s1);
   }
 
-  update(dt: number): void {
-    this.t += dt;
-    if (this.trackState.crooked !== this.applied.crooked || this.trackState.bumpAmp !== this.applied.bumpAmp) {
-      this.rails.crooked = this.trackState.crooked;
-      this.rails.bumpAmp = this.trackState.bumpAmp;
-      this.rails.markDirty();
-      this.applied = { ...this.trackState };
-    }
-    this.rails.update();
-    for (const gl of this.glowLines) gl.update(dt);
-    this.fx.update(dt);
-    const glow = this.phase === 8 ? 0.45 + Math.sin(this.t * 2.5) * 0.35 : 0;
-    this.guardMat.emissiveIntensity += (glow - this.guardMat.emissiveIntensity) * Math.min(1, dt * 3);
+  inBump(s: number): boolean {
+    const u = s / this.mainLen;
+    return u >= this.bumpZone.u0 && u <= this.bumpZone.u1 && !this.byId.bump.installed;
   }
 
-  get crooked(): number {
-    return this.trackState.crooked;
+  /** Reset the world for a phase (called while the splash covers the scene). */
+  setPhase(n: number): void {
+    tweens.kill(this.rails);
+    this.rails.reveal = n >= 3 ? 1 : 0;
+    this.spurGroup.visible = n >= 3;
+    this.spurRails.reveal = 1;
+    for (const h of this.hazards) {
+      const on = h.id === 'bump' ? n >= 6 : h.id === 'switch' ? false : n >= 5;
+      h.installed = on;
+      h.glow = 0;
+      if (h.guard) snapShow(h.guard, on);
+      if (h.guardMat) h.guardMat.emissiveIntensity = GUARD_BASE;
+    }
+    this.rails.bumpAmp = this.byId.bump.installed ? 0 : 1;
+    this.rails.markDirty();
+    this.spurRails.markDirty();
+    this.setLever(false);
+    this.endGlow = n === 8;
+    this.fx.clear();
+  }
+
+  /** Grow the rails from A to B. */
+  revealRails(d: number): void {
+    this.rails.reveal = 0;
+    this.rails.markDirty();
+    this.spurGroup.visible = true;
+    tweens.to(this.rails, { reveal: 1 }, d, ease.inOut);
+  }
+
+  setLever(flipped: boolean, animate = false): void {
+    const arm = this.lever.getObjectByName('arm')!;
+    tweens.kill(arm.rotation);
+    const to = flipped ? 0.45 : -0.45;
+    if (animate) tweens.to(arm.rotation, { x: to }, 0.5, ease.outBack);
+    else arm.rotation.x = to;
+  }
+
+  installGuardrail(h: Hazard): void {
+    h.installed = true;
+    if (h.guard) pop(h.guard, 0.55);
+    this.fx.flash(h.pos.clone().setY(RAIL_TOP), COLORS.flash);
+    h.glow = 1.2;
+    if (h.id === 'bump') {
+      tweens.to(this.rails, { bumpAmp: 0 }, 0.7, ease.inOut);
+    }
+  }
+
+  /** The train went safely past an installed guardrail. */
+  passFlash(h: Hazard): void {
+    this.fx.flash(h.pos.clone().setY(RAIL_TOP), COLORS.guard);
+    h.glow = 1;
+  }
+
+  update(dt: number): void {
+    if (this.rails.reveal !== this.lastReveal) {
+      this.lastReveal = this.rails.reveal;
+      this.rails.markDirty();
+    }
+    if (this.rails.bumpAmp > 0 && this.rails.bumpAmp < 1) this.rails.markDirty();
+    this.rails.update();
+    this.spurRails.update();
+    for (const h of this.hazards) {
+      if (!h.guardMat) continue;
+      h.glow = Math.max(0, h.glow - dt * 1.6);
+      h.guardMat.emissiveIntensity = (this.endGlow ? 1.1 : GUARD_BASE) + h.glow * 1.3;
+    }
+    this.fx.update(dt);
   }
 }

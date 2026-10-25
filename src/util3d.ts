@@ -5,57 +5,47 @@ export const UP = new THREE.Vector3(0, 1, 0);
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 
-/** Flat-shaded pastel material, cached per colour/options. */
+/** Smooth-shaded material, cached per colour/options. */
 export function mat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}): THREE.MeshStandardMaterial {
   const key = color + JSON.stringify(opts);
   let m = matCache.get(key);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0, flatShading: true, ...opts });
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, ...opts });
     matCache.set(key, m);
   }
   return m;
 }
 
-export function box(w: number, h: number, d: number, color: number, opts?: Partial<THREE.MeshStandardMaterialParameters>): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, opts));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
+/** Brushed-metal look for loco fittings. */
+export const metal = (color: number): THREE.MeshStandardMaterial => mat(color, { roughness: 0.35, metalness: 0.75 });
+/** Wood for cab and carts. */
+export const wood = (color: number): THREE.MeshStandardMaterial => mat(color, { roughness: 0.9, metalness: 0 });
+
+export function box(w: number, h: number, d: number, color: number, m?: THREE.Material): THREE.Mesh {
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m ?? mat(color));
 }
 
-export function cyl(rTop: number, rBot: number, h: number, color: number, seg = 12, opts?: Partial<THREE.MeshStandardMaterialParameters>): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), mat(color, opts));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
+export function cyl(rTop: number, rBot: number, h: number, color: number, seg = 24, m?: THREE.Material): THREE.Mesh {
+  return new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), m ?? mat(color));
 }
 
-export function sphere(r: number, color: number, seg = 12, opts?: Partial<THREE.MeshStandardMaterialParameters>): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.75))), mat(color, opts));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
+export function sphere(r: number, color: number, seg = 24, m?: THREE.Material): THREE.Mesh {
+  return new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(8, Math.round(seg * 0.75))), m ?? mat(color));
 }
 
-export function cone(r: number, h: number, color: number, seg = 7): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, seg), mat(color));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
+/** Capsule of total length `len` along +y, centred. */
+export function capsule(r: number, len: number, m: THREE.Material): THREE.Mesh {
+  const mid = Math.max(0.001, len - 2 * r);
+  return new THREE.Mesh(new THREE.CapsuleGeometry(r, mid, 8, 20), m);
+}
+
+export function torus(r: number, tube: number, m: THREE.Material, seg = 24): THREE.Mesh {
+  return new THREE.Mesh(new THREE.TorusGeometry(r, tube, 10, seg), m);
 }
 
 export function at<T extends THREE.Object3D>(obj: T, x: number, y: number, z: number): T {
   obj.position.set(x, y, z);
   return obj;
-}
-
-export function setShadows(obj: THREE.Object3D, cast = true, receive = true): void {
-  obj.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh) {
-      o.castShadow = cast;
-      o.receiveShadow = receive;
-    }
-  });
 }
 
 /** Deterministic PRNG (mulberry32). */
@@ -72,4 +62,17 @@ export function rng(seed: number): () => number {
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const clamp01 = (t: number): number => Math.max(0, Math.min(1, t));
-export const mod1 = (u: number): number => ((u % 1) + 1) % 1;
+export const approach = (v: number, target: number, maxDelta: number): number =>
+  v < target ? Math.min(target, v + maxDelta) : Math.max(target, v - maxDelta);
+
+/** Draws text or a glyph on a square canvas texture. */
+export function canvasTexture(size: number, draw: (g: CanvasRenderingContext2D, s: number) => void): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  draw(g, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}

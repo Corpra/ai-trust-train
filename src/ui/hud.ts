@@ -19,39 +19,48 @@ function mixHex(a: string, b: string, t: number): string {
 
 export class Hud {
   readonly root: HTMLElement;
-  private readonly card: HTMLElement;
-  private readonly title: HTMLElement;
-  private readonly sub: HTMLElement;
+  private readonly overlay: HTMLElement;
+  private readonly heading: HTMLElement;
   private readonly list: HTMLElement;
-  private readonly footer: HTMLElement;
+  private readonly nav: HTMLElement;
   private readonly prevBtn: HTMLButtonElement;
   private readonly nextBtn: HTMLButtonElement;
   private readonly dots: HTMLElement[] = [];
   private readonly arc: SVGPathElement;
   private readonly needle: SVGGElement;
-  private readonly laps: HTMLElement;
-  private readonly hint: HTMLElement;
-  private bulletsHidden = false;
+  private readonly splash: HTMLElement;
+  private readonly splashNum: HTMLElement;
+  private readonly splashSub: HTMLElement;
+  private readonly splashHint: HTMLElement;
+  private readonly dipEl: HTMLElement;
+  private overlayHidden = false;
+
+  /** True while the panel covers the scene (or is sliding in). */
+  splashShown = false;
 
   onPrev?: () => void;
   onNext?: () => void;
   onGoTo?: (n: number) => void;
+  onReplay?: () => void;
+  onSplashClick?: () => void;
 
   constructor(private readonly t: Texts) {
     this.root = el('div');
     this.root.id = 'hud';
 
-    this.card = el('div', 'card');
-    this.title = el('h1');
-    this.sub = el('p', 'sub');
+    this.overlay = el('div', 'overlay');
+    this.heading = el('h2');
     this.list = el('ul');
-    this.footer = el('p', 'footer', t.footer);
-    this.card.append(this.title, this.sub, this.list, this.footer);
+    const footer = el('p', 'footer', t.footer);
+    this.overlay.append(this.heading, this.list, footer);
 
-    const nav = el('div', 'nav');
+    this.nav = el('div', 'nav');
     this.prevBtn = el('button', undefined, t.prev);
     this.prevBtn.type = 'button';
     this.prevBtn.addEventListener('click', () => this.onPrev?.());
+    const replayBtn = el('button', 'replay', t.replay);
+    replayBtn.type = 'button';
+    replayBtn.addEventListener('click', () => this.onReplay?.());
     this.nextBtn = el('button', undefined, t.next);
     this.nextBtn.type = 'button';
     this.nextBtn.addEventListener('click', () => this.onNext?.());
@@ -63,7 +72,7 @@ export class Hud {
       this.dots.push(d);
       dots.append(d);
     }
-    nav.append(this.prevBtn, dots, this.nextBtn);
+    this.nav.append(this.prevBtn, dots, replayBtn, this.nextBtn);
 
     const dial = el('div', 'dial');
     const ns = 'http://www.w3.org/2000/svg';
@@ -72,10 +81,11 @@ export class Hud {
     const bg = document.createElementNS(ns, 'path');
     bg.setAttribute('d', 'M10 62 A50 50 0 0 1 110 62');
     bg.setAttribute('fill', 'none');
-    bg.setAttribute('stroke', '#e3e9ee');
+    bg.setAttribute('stroke', 'rgba(255,255,255,0.12)');
     bg.setAttribute('stroke-width', '11');
     bg.setAttribute('stroke-linecap', 'round');
     this.arc = document.createElementNS(ns, 'path');
+    this.arc.setAttribute('class', 'arc');
     this.arc.setAttribute('d', 'M10 62 A50 50 0 0 1 110 62');
     this.arc.setAttribute('fill', 'none');
     this.arc.setAttribute('stroke', '#e35b5b');
@@ -84,12 +94,13 @@ export class Hud {
     this.arc.setAttribute('stroke-dasharray', `${ARC_LEN} ${ARC_LEN}`);
     this.arc.setAttribute('stroke-dashoffset', `${ARC_LEN}`);
     this.needle = document.createElementNS(ns, 'g');
+    this.needle.setAttribute('class', 'needle');
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', '60');
     line.setAttribute('y1', '62');
     line.setAttribute('x2', '20');
     line.setAttribute('y2', '62');
-    line.setAttribute('stroke', '#2b3440');
+    line.setAttribute('stroke', '#f4f4f6');
     line.setAttribute('stroke-width', '3.5');
     line.setAttribute('stroke-linecap', 'round');
     this.needle.append(line);
@@ -97,56 +108,110 @@ export class Hud {
     hub.setAttribute('cx', '60');
     hub.setAttribute('cy', '62');
     hub.setAttribute('r', '5');
-    hub.setAttribute('fill', '#2b3440');
+    hub.setAttribute('fill', '#f4f4f6');
     svg.append(bg, this.arc, this.needle, hub);
     const label = el('div', 'label', t.trust);
-    this.laps = el('div', 'laps');
-    dial.append(svg, label, this.laps);
+    dial.append(svg, label);
 
-    this.hint = el('div', 'hint', t.hint);
+    this.splash = el('div', 'splash');
+    this.splashNum = el('div', 'num');
+    this.splashSub = el('div', 'sub');
+    this.splashHint = el('div', 'hint hidden', t.hint);
+    this.splash.append(this.splashNum, this.splashSub, this.splashHint);
+    this.splash.addEventListener('click', () => this.onSplashClick?.());
 
-    this.root.append(this.card, nav, dial, this.hint);
+    this.dipEl = el('div', 'dip');
+
+    this.root.append(this.overlay, this.nav, dial, this.dipEl, this.splash);
     document.body.append(this.root);
     this.setTrust(0);
   }
 
   setPhase(n: number): void {
     const p = this.t.phases[n];
-    this.title.textContent = p.title;
-    if (n === 0) {
-      this.sub.textContent = p.bullets[0] ?? '';
-      this.sub.style.display = '';
-      this.list.style.display = 'none';
-    } else {
-      this.sub.style.display = 'none';
-      this.list.style.display = '';
-      this.list.replaceChildren(...p.bullets.map((b) => el('li', undefined, b)));
-    }
-    this.card.classList.toggle('with-footer', n === PHASE_COUNT - 1);
+    this.heading.textContent = p.title;
+    this.list.replaceChildren(...p.bullets.map((b) => el('li', undefined, b)));
+    this.overlay.classList.toggle('with-footer', n === PHASE_COUNT - 1);
+    this.overlay.classList.toggle('hidden', this.overlayHidden || n === 0);
     this.dots.forEach((d, i) => {
       d.classList.toggle('on', i === n);
       d.classList.toggle('done', i < n);
     });
     this.prevBtn.disabled = n === 0;
     this.nextBtn.disabled = n === PHASE_COUNT - 1;
-    this.hint.classList.toggle('hidden', n !== 0);
   }
 
   setTrust(v: number): void {
     const k = Math.max(0, Math.min(1, v));
     this.arc.setAttribute('stroke-dashoffset', `${ARC_LEN * (1 - k)}`);
-    this.needle.setAttribute('transform', `rotate(${180 * k} 60 62)`);
+    this.needle.style.transform = `rotate(${180 * k}deg)`;
     const color = k < 0.5 ? mixHex('#e35b5b', '#ffcc33', k / 0.5) : mixHex('#ffcc33', '#3fb66b', (k - 0.5) / 0.5);
     this.arc.setAttribute('stroke', color);
   }
 
-  setLaps(n: number, visible: boolean): void {
-    this.laps.textContent = `${this.t.cleanLaps}: ${n}`;
-    this.laps.classList.toggle('on', visible);
+  /** Shows the replay button once a phase has played through. */
+  setFinished(on: boolean): void {
+    this.nav.classList.toggle('done', on);
   }
 
-  toggleBullets(): void {
-    this.bulletsHidden = !this.bulletsHidden;
-    this.card.classList.toggle('hidden', this.bulletsHidden);
+  toggleOverlay(): void {
+    this.overlayHidden = !this.overlayHidden;
+    this.overlay.classList.toggle('hidden', this.overlayHidden);
+  }
+
+  private setSplashText(n: number): void {
+    const p = this.t.phases[n];
+    const numbered = n > 0 && n < PHASE_COUNT - 1;
+    this.splashNum.textContent = numbered ? `${this.t.phase} ${n}` : p.title;
+    this.splashNum.classList.toggle('title', !numbered);
+    this.splashSub.textContent = numbered ? p.title : '';
+    this.splashSub.style.display = numbered ? '' : 'none';
+    this.splashHint.classList.toggle('hidden', n !== 0);
+  }
+
+  /** The panel is already up: pop its text out and the next phase's text in. */
+  splashSwap(n: number): void {
+    const s = this.splash;
+    s.classList.remove('out');
+    s.classList.add('in', 'swap');
+    this.splashShown = true;
+    setTimeout(() => {
+      this.setSplashText(n);
+      s.classList.remove('swap');
+    }, 190);
+  }
+
+  /** Slide the panel in from the left. `still` places it without animation (first paint). */
+  splashIn(n: number, still = false): void {
+    this.setSplashText(n);
+    const s = this.splash;
+    s.classList.remove('swap');
+    s.classList.remove('out');
+    if (!s.classList.contains('in')) {
+      // restart from the left edge without a transition
+      s.classList.add('still');
+      s.classList.remove('in');
+      void s.offsetWidth;
+      if (!still) s.classList.remove('still');
+      s.classList.add('in');
+      if (still) {
+        void s.offsetWidth;
+        s.classList.remove('still');
+      }
+    }
+    this.splashShown = true;
+  }
+
+  /** Slide the panel out to the right. */
+  splashOut(): void {
+    const s = this.splash;
+    if (!s.classList.contains('in')) return;
+    s.classList.remove('in', 'still');
+    s.classList.add('out');
+    this.splashShown = false;
+  }
+
+  dip(on: boolean): void {
+    this.dipEl.classList.toggle('on', on);
   }
 }
