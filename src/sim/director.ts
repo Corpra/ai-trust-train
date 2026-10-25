@@ -25,8 +25,10 @@ type EnterMode = 'splash' | 'initial' | 'dip';
 
 interface Ev {
   h: Hazard;
-  kind: 'fork' | 'derail' | 'sparks' | 'crate';
+  kind: 'fork' | 'derail' | 'crate';
   install?: boolean;
+  /** Phase 5: the fix reinforces an existing guardrail. */
+  strong?: boolean;
   index?: number;
 }
 
@@ -57,7 +59,6 @@ export class Director implements Controls {
   private spurBumped = false;
   private time = 0;
   private sweatTimer = 0;
-  private shake = 0;
 
   private readonly ticket: THREE.Mesh;
   private readonly crates: THREE.Group[] = [];
@@ -69,7 +70,6 @@ export class Director implements Controls {
   constructor(private readonly d: Deps) {
     d.train.spurCurve = d.world.spurCurve;
     d.train.spurLen = d.world.spurLen;
-    d.train.liftAt = (s) => d.world.liftAt(s);
     d.rig.target = d.train.loco;
     this.ticket = makeTicket();
     this.ticket.visible = false;
@@ -155,7 +155,6 @@ export class Director implements Controls {
     this.takeSpur = false;
     this.spurBumped = false;
     this.sweatTimer = 0;
-    this.shake = 0;
 
     train.reset();
     train.derail = { ...NO_POSE };
@@ -313,10 +312,8 @@ export class Director implements Controls {
   private *p5(): Seq {
     const H = this.d.world.byId;
     yield wait(0.4);
-    yield* this.run([
-      { h: H.bump, kind: 'derail', install: true },
-      { h: H.curve, kind: 'sparks' },
-    ]);
+    // at speed the curve guardrail is not enough: tip over it, fix, reinforce
+    yield* this.run([{ h: H.curve, kind: 'derail', install: true, strong: true }]);
   }
 
   private *p6(): Seq {
@@ -360,7 +357,7 @@ export class Director implements Controls {
     pop(human.clipboard, 0.01);
 
     yield* this.run([
-      { h: H.bump, kind: 'crate', index: 0 },
+      { h: H.switch, kind: 'crate', index: 0 },
       { h: H.curve, kind: 'crate', index: 1 },
       { h: H.gap, kind: 'crate', index: 2 },
     ]);
@@ -423,8 +420,7 @@ export class Director implements Controls {
         continue;
       }
       yield until(() => train.s >= ev.h.s);
-      if (ev.kind === 'derail') yield* this.derailAndFix(ev.h, !!ev.install);
-      else if (ev.kind === 'sparks') yield* this.scrape(ev.h);
+      if (ev.kind === 'derail') yield* this.derailAndFix(ev.h, !!ev.install, !!ev.strong);
       else if (ev.kind === 'crate') this.dropCrate(ev.index ?? 0);
     }
     this.stopAt = world.stopS;
@@ -460,7 +456,7 @@ export class Director implements Controls {
     this.crates.length = 0;
   }
 
-  private *derailAndFix(h: Hazard, install: boolean): Seq {
+  private *derailAndFix(h: Hazard, install: boolean, strong = false): Seq {
     const { train, human, world } = this.d;
     this.frozen = true;
     train.speed = 0;
@@ -502,7 +498,7 @@ export class Director implements Controls {
     human.pose = 'stand';
     yield wait(0.25);
     if (install) {
-      world.installGuardrail(h);
+      world.installGuardrail(h, strong);
       human.faceTowards(h.pos.x, h.pos.z);
       human.pose = 'point';
       yield wait(0.9);
@@ -557,21 +553,6 @@ export class Director implements Controls {
     this.takeSpur = false;
     this.spurBumped = false;
     this.frozen = false;
-  }
-
-  /** Phase 5: the curve guardrail holds at speed, with sparks. */
-  private *scrape(_h: Hazard): Seq {
-    const { train, world } = this.d;
-    train.derail = { lat: -0.12, lift: 0, roll: 0.16, pitch: 0, yaw: -0.04 };
-    yield step(1.0 * MOTION + 0.01, (t) => {
-      train.derailAmount = Math.sin(Math.PI * t);
-      const p = train.worldPos(this.v1).clone();
-      const r = train.right(this.v2);
-      const f = train.forward(this.v3);
-      const wheel = p.addScaledVector(r, -0.72).addScaledVector(f, 0.4).setY(0.25);
-      world.fx.emitSparks(wheel, f.clone().negate(), 2);
-    });
-    train.derailAmount = 0;
   }
 
   /* ---------------- Human helpers ---------------- */
@@ -698,14 +679,11 @@ export class Director implements Controls {
       }
     }
 
-    // shaking on the bumpy stretch, camera speed feel, streaks
+    // camera speed feel and streaks
     const fast = this.cruiseFor(6);
     const slow = this.cruiseFor(2) * 0.9;
     const speedK = clamp01((Math.abs(train.speed) - slow) / (fast - slow));
     rig.speedK = this.phase === PHASE_COUNT - 1 ? 0 : speedK;
-    const wantShake = !train.onSpur && world.inBump(train.s) ? clamp01(Math.abs(train.speed) / this.cruiseFor(2)) : 0;
-    this.shake += (wantShake - this.shake) * Math.min(1, dt * 10);
-    train.shake = this.shake;
 
     train.update(dt);
     human.update(dt);

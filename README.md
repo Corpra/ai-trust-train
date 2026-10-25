@@ -19,7 +19,7 @@ Every phase runs on the same track from A to B and plays once; a splash panel ("
 | 2 | Adding the codebase | Rails sweep in, the loco gains a code plate, the human climbs into the cab. Wrong fork at the switch, derails at the curve and the gap, each fixed by hand |
 | 3 | Adding ADO/Confluence/Jira | The loco gains a context plate and an antenna. The switch is taken correctly; the curve and the gap still derail |
 | 4 | Iterative guardrails | Each derail is fixed and gets a guardrail: a fence on the curve, a bridge plate over the gap |
-| 5 | Increase speed | Faster. The bumpy stretch derails and gets levelled; the curve guardrail holds with sparks |
+| 5 | Increase speed | Faster. The curve guardrail is not enough at this speed: the train tips over it, is fixed, and the guardrail is reinforced. The bridge holds |
 | 6 | Smooth ride | Full speed, every guardrail flashes as the train passes |
 | 7 | Self-driving train | The human hands over a ticket at A and waits at B. Crates land on the cart along the way; at B two pass and one is sent back |
 | 8 | Trust is built, not given | A wide view of the whole track with its guardrails |

@@ -145,7 +145,7 @@ export class Fx {
   }
 
   flash(pos: THREE.Vector3, color: number = COLORS.flash): void {
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
     const m = new THREE.Mesh(this.ringGeo, mat);
     m.rotation.x = -Math.PI / 2;
     m.position.copy(pos);
@@ -215,9 +215,9 @@ export class Fx {
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const r = this.rings[i];
       r.life += dt;
-      const s = 1 + r.life * 6;
+      const s = 1 + r.life * 3.5;
       r.m.scale.set(s, s, s);
-      r.mat.opacity = Math.max(0, 0.9 * (1 - r.life / 0.65));
+      r.mat.opacity = Math.max(0, 0.5 * (1 - r.life / 0.65));
       if (r.life >= 0.65) {
         this.group.remove(r.m);
         r.mat.dispose();

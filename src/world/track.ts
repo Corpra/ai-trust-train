@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { COLORS } from '../config';
-import { mat, rng, Z } from '../util3d';
+import { mat, Z } from '../util3d';
 
 export const GAUGE = 1.0;
 export const RAIL_H = 0.1;
@@ -8,7 +8,7 @@ export const RAIL_H = 0.1;
 export const RAIL_TOP = 0.06 + RAIL_H;
 
 /**
- * The line from A (origin, heading -z) to B. In order: a straight, the bumpy stretch, the switch,
+ * The line from A (origin, heading -z) to B. In order: a long straight, the switch,
  * the sharp right-hand curve, a straight with the gap, a gentle bend, the destination.
  */
 const MAIN_PTS: [number, number][] = [
@@ -83,18 +83,15 @@ export const inZone = (u: number, z: Zone): boolean => u >= z.u0 && u <= z.u1;
 interface SegData {
   u: number;
   len: number;
-  n1: number;
-  n2: number;
 }
 
 interface SleeperData {
   u: number;
-  n1: number;
 }
 
 /**
  * Rails and sleepers as instanced boxes along a curve. `reveal` (0..1) grows the line from its
- * start; `gapZone` leaves rails and sleepers out; `bumpAmp` lifts and rolls the track in `bumpZone`.
+ * start; `gapZone` leaves rails and sleepers out.
  */
 export class RailLine {
   readonly group = new THREE.Group();
@@ -109,22 +106,18 @@ export class RailLine {
 
   reveal = 1;
   gapZone: Zone | null = null;
-  bumpZone: Zone | null = null;
-  bumpAmp = 0;
 
   constructor(
     readonly curve: THREE.Curve<THREE.Vector3>,
-    seed = 1,
     segLen = 0.5,
     sleeperEvery = 0.9,
   ) {
     this.length = curve.getLength();
-    const r = rng(seed);
     const nSeg = Math.max(2, Math.round(this.length / segLen));
     const len = this.length / nSeg;
-    for (let i = 0; i < nSeg; i++) this.segs.push({ u: (i + 0.5) / nSeg, len, n1: r() * 2 - 1, n2: r() * 2 - 1 });
+    for (let i = 0; i < nSeg; i++) this.segs.push({ u: (i + 0.5) / nSeg, len });
     const nSl = Math.max(1, Math.round(this.length / sleeperEvery));
-    for (let i = 0; i < nSl; i++) this.slp.push({ u: (i + 0.5) / nSl, n1: r() * 2 - 1 });
+    for (let i = 0; i < nSl; i++) this.slp.push({ u: (i + 0.5) / nSl });
 
     const railMat = mat(COLORS.rail, { roughness: 0.45, metalness: 0.4, emissive: 0x202227 });
     const sleeperMat = mat(COLORS.sleeper, { roughness: 0.95, emissive: 0x08080a });
@@ -132,14 +125,6 @@ export class RailLine {
     this.sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.06, 0.2), sleeperMat, nSl);
     this.group.add(this.sleepers, this.rails);
     this.apply();
-  }
-
-  /** Height offset of the track at u from the bumpy stretch (0 outside it). */
-  bumpAt(u: number): number {
-    if (!this.bumpZone || this.bumpAmp <= 0 || !inZone(u, this.bumpZone)) return 0;
-    const s = u * this.length;
-    const edge = Math.min(1, Math.min(u - this.bumpZone.u0, this.bumpZone.u1 - u) * this.length * 0.6);
-    return this.bumpAmp * edge * (0.5 + 0.5 * Math.sin(s * 2.6)) * 0.22;
   }
 
   markDirty(): void {
@@ -159,13 +144,10 @@ export class RailLine {
       const s = this.segs[si];
       frameAt(this.curve, s.u, f);
       const gone = (this.gapZone && inZone(s.u, this.gapZone)) || si >= nShow;
-      const lift = this.bumpAt(s.u);
-      const roll = this.bumpZone && this.bumpAmp > 0 && inZone(s.u, this.bumpZone) ? this.bumpAmp * s.n1 * 0.12 : 0;
       for (let side = -1; side <= 1; side += 2) {
         dummy.position.copy(f.pos).addScaledVector(f.right, (side * GAUGE) / 2);
-        dummy.position.y = 0.06 + RAIL_H / 2 + lift + roll * side * 0.5;
+        dummy.position.y = 0.06 + RAIL_H / 2;
         dummy.quaternion.setFromUnitVectors(Z, f.tan);
-        dummy.rotateZ(roll);
         if (gone) dummy.scale.setScalar(0.001);
         else dummy.scale.set(1, 1, s.len * 1.04);
         dummy.updateMatrix();
@@ -180,11 +162,9 @@ export class RailLine {
       const s = this.slp[si];
       frameAt(this.curve, s.u, f);
       const gone = (this.gapZone && inZone(s.u, this.gapZone)) || si >= nSl;
-      const lift = this.bumpAt(s.u);
       dummy.position.copy(f.pos);
-      dummy.position.y = 0.03 + lift;
+      dummy.position.y = 0.03;
       dummy.quaternion.setFromUnitVectors(Z, f.tan);
-      if (lift > 0) dummy.rotateY(this.bumpAmp * s.n1 * 0.12);
       const k = gone ? 0.001 : 1;
       dummy.scale.set(k, k, k);
       dummy.updateMatrix();

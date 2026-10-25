@@ -16,7 +16,7 @@ import {
   type Zone,
 } from './track';
 
-export type HazardId = 'bump' | 'switch' | 'curve' | 'gap';
+export type HazardId = 'switch' | 'curve' | 'gap';
 
 export interface DerailPose {
   lat: number;
@@ -35,9 +35,13 @@ export interface Hazard {
   pose: DerailPose;
   /** How far past the hazard the loco is set after a fix. */
   clear: number;
+  /** First guardrail, earned in phase 4. */
   guard: THREE.Group | null;
+  /** Reinforcement earned in phase 5 (curve only). */
+  guard2: THREE.Group | null;
   guardMat: THREE.MeshStandardMaterial | null;
   installed: boolean;
+  reinforced: boolean;
   glow: number;
 }
 
@@ -89,7 +93,6 @@ export class World {
   readonly spurLen: number;
   readonly hazards: Hazard[] = [];
   readonly byId: Record<HazardId, Hazard>;
-  readonly bumpZone: Zone;
   /** Loco distance when stopped at B. */
   readonly stopS: number;
   readonly spots: {
@@ -137,15 +140,10 @@ export class World {
     };
     this.group.add(makeRibbon(this.main, mudWidth, 0.012, mudMat, 600, 0, 1, 7));
 
-    this.rails = new RailLine(this.main, 7);
+    this.rails = new RailLine(this.main);
     this.group.add(this.rails.group);
 
     // Hazard positions
-    const uBump0 = nearestU(this.main, 0, -19);
-    const uBump1 = nearestU(this.main, 0, -31);
-    this.bumpZone = { u0: Math.min(uBump0, uBump1), u1: Math.max(uBump0, uBump1) };
-    this.rails.bumpZone = this.bumpZone;
-    this.rails.bumpAmp = 1;
     const uSwitch = nearestU(this.main, 0, -40);
     const uCurve = nearestU(this.main, 5.6, -59.2);
     const gapCenterU = nearestU(this.main, 32.5, -64.6);
@@ -155,7 +153,7 @@ export class World {
     // Siding
     this.spurCurve = makeSpurCurve(this.main, uSwitch);
     this.spurLen = this.spurCurve.getLength();
-    this.spurRails = new RailLine(this.spurCurve, 3);
+    this.spurRails = new RailLine(this.spurCurve);
     this.spurGroup.add(this.spurRails.group);
     this.spurGroup.add(makeRibbon(this.spurCurve, 3.0, 0.011, mudMat, 120, 0.08, 1, 7));
     const spurEnd = frameAt(this.spurCurve, 1, newFrame());
@@ -194,34 +192,47 @@ export class World {
     // Hazards and their guardrails
     const H = (id: HazardId, u: number, pose: DerailPose, clear: number): Hazard => {
       const frame = frameAt(this.main, u, newFrame());
-      const h: Hazard = { id, s: u * L, pos: frame.pos.clone(), frame, pose, clear, guard: null, guardMat: null, installed: false, glow: 0 };
+      const h: Hazard = {
+        id,
+        s: u * L,
+        pos: frame.pos.clone(),
+        frame,
+        pose,
+        clear,
+        guard: null,
+        guard2: null,
+        guardMat: null,
+        installed: false,
+        reinforced: false,
+        glow: 0,
+      };
       this.hazards.push(h);
       return h;
     };
-    const bump = H('bump', (this.bumpZone.u0 + this.bumpZone.u1) / 2, { lat: -0.7, lift: -0.05, roll: -0.9, pitch: 0.05, yaw: -0.3 }, 1.2);
     const sw2 = H('switch', uSwitch, { lat: 0, lift: 0.08, roll: 0.05, pitch: -0.18, yaw: 0 }, 0);
     const curve = H('curve', uCurve, { lat: -0.9, lift: -0.12, roll: -0.95, pitch: 0.02, yaw: -0.3 }, 1.4);
     const gap = H('gap', gapCenterU - gapHalf - 0.35 / L, { lat: 0, lift: -0.6, roll: 0.08, pitch: 0.55, yaw: 0 }, 3.4);
     this.hazards.sort((a, b) => a.s - b.s);
-    this.byId = { bump, switch: sw2, curve, gap };
+    this.byId = { switch: sw2, curve, gap };
 
     const guardMat = (): THREE.MeshStandardMaterial =>
       new THREE.MeshStandardMaterial({ color: COLORS.guard, emissive: COLORS.guard, emissiveIntensity: GUARD_BASE, roughness: 0.5 });
 
-    // Bump guardrail: levelled track shown as yellow sleepers through the stretch
-    bump.guardMat = guardMat();
-    bump.guard = this.makeBumpGuard(bump.guardMat);
-    // Curve guardrail: fence on the outside (left) of the bend
+    // Curve guardrail: a luminous line on the outside (left) of the bend, reinforced with a second, higher line at speed
+    const curveZone: Zone = { u0: nearestU(this.main, 0.6, -50), u1: nearestU(this.main, 14.5, -63.6) };
     curve.guardMat = guardMat();
-    curve.guard = this.makeGlowLine({ u0: nearestU(this.main, 0.6, -50), u1: nearestU(this.main, 14.5, -63.6) }, -1, 1.4, 0.55, curve.guardMat);
+    curve.guard = this.makeGlowLine(curveZone, -1, 1.4, 0.55, 0.03, curve.guardMat);
+    curve.guard2 = this.makeGlowLine(curveZone, -1, 1.55, 1.0, 0.045, curve.guardMat);
     // Gap guardrail: a bridge plate with rail stubs
     gap.guardMat = guardMat();
     gap.guard = this.makeBridge(gapCenterU, gapHalf * 2 * L, gap.guardMat);
     for (const h of this.hazards) {
-      if (!h.guard) continue;
-      h.guard.visible = false;
-      h.guard.scale.setScalar(0.001);
-      this.group.add(h.guard);
+      for (const g of [h.guard, h.guard2]) {
+        if (!g) continue;
+        g.visible = false;
+        g.scale.setScalar(0.001);
+        this.group.add(g);
+      }
     }
 
     this.group.add(this.fx.group);
@@ -262,27 +273,8 @@ export class World {
     return g;
   }
 
-  private makeBumpGuard(m: THREE.Material): THREE.Group {
-    const g = new THREE.Group();
-    const f = this.f;
-    const n = Math.round(((this.bumpZone.u1 - this.bumpZone.u0) * this.mainLen) / 0.9);
-    const geo = new THREE.BoxGeometry(1.5, 0.04, 0.1);
-    const inst = new THREE.InstancedMesh(geo, m, n);
-    const d = new THREE.Object3D();
-    for (let i = 0; i < n; i++) {
-      frameAt(this.main, this.bumpZone.u0 + ((this.bumpZone.u1 - this.bumpZone.u0) * (i + 0.5)) / n, f);
-      d.position.copy(f.pos);
-      d.position.y = 0.04;
-      d.quaternion.setFromUnitVectors(Z, f.tan);
-      d.updateMatrix();
-      inst.setMatrixAt(i, d.matrix);
-    }
-    g.add(inst);
-    return g;
-  }
-
   /** A thin luminous rail on slim posts alongside a stretch of track. */
-  private makeGlowLine(zone: Zone, side: 1 | -1, dist: number, height: number, m: THREE.Material): THREE.Group {
+  private makeGlowLine(zone: Zone, side: 1 | -1, dist: number, height: number, radius: number, m: THREE.Material): THREE.Group {
     const g = new THREE.Group();
     const f = this.f;
     const L = this.mainLen;
@@ -293,9 +285,9 @@ export class World {
       pts.push(f.pos.clone().addScaledVector(f.right, side * dist).setY(height));
     }
     const path = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    const tube = new THREE.Mesh(new THREE.TubeGeometry(path, n * 2, 0.03, 10, false), m);
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(path, n * 2, radius, 10, false), m);
     g.add(tube);
-    const postGeo = new THREE.CylinderGeometry(0.012, 0.012, height, 8);
+    const postGeo = new THREE.CylinderGeometry(radius * 0.45, radius * 0.45, height, 8);
     const every = Math.max(1, Math.round(2.4 / (((zone.u1 - zone.u0) * L) / n)));
     for (let i = 0; i <= n; i += every) {
       const post = new THREE.Mesh(postGeo, m);
@@ -321,19 +313,9 @@ export class World {
     return g;
   }
 
-  /** Track lift at distance s on the main line (riding over the bumps). */
-  liftAt(s: number): number {
-    return this.rails.reveal * this.rails.bumpAt(s / this.mainLen);
-  }
-
   /** Hazards whose derail point lies in (s0, s1]. */
   crossed(s0: number, s1: number): Hazard[] {
     return this.hazards.filter((h) => h.s > s0 && h.s <= s1);
-  }
-
-  inBump(s: number): boolean {
-    const u = s / this.mainLen;
-    return u >= this.bumpZone.u0 && u <= this.bumpZone.u1 && !this.byId.bump.installed;
   }
 
   /** Reset the world for a phase (called while the splash covers the scene). */
@@ -343,13 +325,15 @@ export class World {
     this.spurGroup.visible = n >= 3;
     this.spurRails.reveal = 1;
     for (const h of this.hazards) {
-      const on = h.id === 'bump' ? n >= 6 : h.id === 'switch' ? false : n >= 5;
+      const on = h.id !== 'switch' && n >= 5;
+      const strong = h.id === 'curve' && n >= 6;
       h.installed = on;
+      h.reinforced = strong;
       h.glow = 0;
       if (h.guard) snapShow(h.guard, on);
+      if (h.guard2) snapShow(h.guard2, strong);
       if (h.guardMat) h.guardMat.emissiveIntensity = GUARD_BASE;
     }
-    this.rails.bumpAmp = this.byId.bump.installed ? 0 : 1;
     this.rails.markDirty();
     this.spurRails.markDirty();
     this.setLever(false);
@@ -373,14 +357,17 @@ export class World {
     else arm.rotation.x = to;
   }
 
-  installGuardrail(h: Hazard): void {
-    h.installed = true;
-    if (h.guard) pop(h.guard, 0.55);
+  /** Earn a guardrail; `strong` adds the reinforcement on top of an existing one. */
+  installGuardrail(h: Hazard, strong = false): void {
+    if (strong && h.guard2) {
+      h.reinforced = true;
+      pop(h.guard2, 0.55);
+    } else {
+      h.installed = true;
+      if (h.guard) pop(h.guard, 0.55);
+    }
     this.fx.flash(h.pos.clone().setY(RAIL_TOP), COLORS.flash);
     h.glow = 1.2;
-    if (h.id === 'bump') {
-      tweens.to(this.rails, { bumpAmp: 0 }, 0.7, ease.inOut);
-    }
   }
 
   /** The train went safely past an installed guardrail. */
@@ -394,7 +381,6 @@ export class World {
       this.lastReveal = this.rails.reveal;
       this.rails.markDirty();
     }
-    if (this.rails.bumpAmp > 0 && this.rails.bumpAmp < 1) this.rails.markDirty();
     this.rails.update();
     this.spurRails.update();
     for (const h of this.hazards) {
