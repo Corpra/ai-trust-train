@@ -73,11 +73,11 @@ export class CameraRig {
     this.right.set(-this.dir.z, 0, this.dir.x);
     target.getWorldPosition(this.p);
     const k = this.curSpeedK;
-    const back = 17 + 2.5 * k;
-    const height = 8.6 - 1.4 * k;
-    const side = 6.2;
-    const ahead = 6 + 5 * k;
-    this.wantLook.copy(this.p).addScaledVector(this.dir, ahead).addScaledVector(this.right, 2.4).setY(this.p.y + 0.8);
+    const back = 23 + 3 * k;
+    const height = 11.5 - 1.6 * k;
+    const side = 8;
+    const ahead = 7 + 5 * k;
+    this.wantLook.copy(this.p).addScaledVector(this.dir, ahead).addScaledVector(this.right, 4.6).setY(this.p.y + 0.6);
     this.wantPos.copy(this.p).addScaledVector(this.dir, -back).addScaledVector(this.right, side).setY(this.p.y + height);
   }
 

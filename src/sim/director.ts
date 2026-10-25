@@ -30,8 +30,15 @@ interface Ev {
   index?: number;
 }
 
-const END_CAM = { pos: new THREE.Vector3(129, 84, 51), look: new THREE.Vector3(49, 0, -45) };
+const END_CAM = { pos: new THREE.Vector3(146, 96, 58), look: new THREE.Vector3(57, 0, -52) };
 const NO_POSE = { lat: 0, lift: 0, roll: 0, pitch: 0, yaw: 0 };
+
+/** Move a look target along the camera's right so the subject sits in the left part of the frame. */
+function frameLeft(camPos: THREE.Vector3, look: THREE.Vector3, k: number): THREE.Vector3 {
+  const fwd = look.clone().sub(camPos).setY(0).normalize();
+  const camRight = new THREE.Vector3(-fwd.z, 0, fwd.x);
+  return look.clone().addScaledVector(camRight, k);
+}
 
 export class Director implements Controls {
   phase = 0;
@@ -359,8 +366,9 @@ export class Director implements Controls {
     ]);
     // a side shot of the whole train at the slab, so the inspection stays in view
     const sf = frameAt(world.main, world.stopS / world.mainLen, newFrame());
-    const mid = sf.pos.clone().addScaledVector(sf.tan, -2.2);
-    rig.setFixed(mid.clone().addScaledVector(sf.right, 14).addScaledVector(sf.tan, -7).setY(9), mid.clone().setY(0.6), 1.4 * MOTION);
+    const mid = sf.pos.clone().addScaledVector(sf.tan, -2.2).setY(0.6);
+    const camPos = mid.clone().addScaledVector(sf.right, 19).addScaledVector(sf.tan, -9).setY(12);
+    rig.setFixed(camPos, frameLeft(camPos, mid, 5), 1.4 * MOTION);
     yield wait(0.6);
 
     // inspection: two good crates, one rejected
@@ -522,9 +530,9 @@ export class Director implements Controls {
     const f = train.forward(this.v3).clone();
     const lever = h.pos.clone().addScaledVector(h.frame.right, 1.7);
     // a side shot that keeps both the stranded loco and the lever in view
-    const look = p.clone().add(lever).multiplyScalar(0.5).addScaledVector(h.frame.tan, 1.2).setY(0.8);
-    const camPos = look.clone().addScaledVector(h.frame.right, 15).addScaledVector(h.frame.tan, -3).setY(8.5);
-    rig.setFixed(camPos, look, 1.2 * MOTION);
+    const mid = p.clone().add(lever).multiplyScalar(0.5).setY(0.8);
+    const camPos = mid.clone().addScaledVector(h.frame.right, 20).addScaledVector(h.frame.tan, -4).setY(11);
+    rig.setFixed(camPos, frameLeft(camPos, mid, 4.5), 1.2 * MOTION);
     this.detachHuman();
     yield* this.hop(p.clone().addScaledVector(r, 1.8).addScaledVector(f, -1.0).setY(0));
     yield* this.walkTo(world.spots.lever, 4.2);
