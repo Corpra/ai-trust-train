@@ -95,20 +95,6 @@ canvas {
   padding-top: 0;
 }
 
-.overlay .footer {
-  margin: 2.2em 0 0;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--muted);
-  display: none;
-}
-
-.overlay.with-footer .footer {
-  display: block;
-}
-
 /* Navigation */
 .nav {
   position: absolute;

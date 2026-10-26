@@ -29,7 +29,6 @@ export const TEXTS: Record<Lang, Texts> = {
     replay: '↻ Replay',
     hint: '→ to begin',
     startHint: 'Space to start the train',
-    footer: 'Mathias Jernberg',
     phases: [
       {
         title: 'The trust ladder for AI',
@@ -93,7 +92,6 @@ export const TEXTS: Record<Lang, Texts> = {
     replay: '↻ Spela igen',
     hint: '→ för att börja',
     startHint: 'Mellanslag startar tåget',
-    footer: 'Mathias Jernberg',
     phases: [
       {
         title: 'Tillitsstegen för AI',

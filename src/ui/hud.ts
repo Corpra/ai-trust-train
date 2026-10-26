@@ -52,8 +52,7 @@ export class Hud {
     this.overlay = el('div', 'overlay');
     this.heading = el('h2');
     this.list = el('ul');
-    const footer = el('p', 'footer', t.footer);
-    this.overlay.append(this.heading, this.list, footer);
+    this.overlay.append(this.heading, this.list);
 
     this.nav = el('div', 'nav');
     this.prevBtn = el('button', undefined, t.prev);
@@ -133,7 +132,6 @@ export class Hud {
     const p = this.t.phases[n];
     this.heading.textContent = p.title;
     this.list.replaceChildren(...p.bullets.map((b) => el('li', undefined, b)));
-    this.overlay.classList.toggle('with-footer', n === PHASE_COUNT - 1);
     this.overlay.classList.toggle('hidden', this.overlayHidden || n === 0);
     this.dots.forEach((d, i) => {
       d.classList.toggle('on', i === n);
