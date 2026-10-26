@@ -603,7 +603,7 @@ export class Director implements Controls {
     if (this.frozen) {
       train.speed = 0;
     } else {
-      const acc = this.reverse ? 6 : this.phase <= 1 ? 2.2 : this.phase === 5 ? 4.5 : this.phase >= 6 ? 4 : 5.5;
+      const acc = this.reverse ? 6 : this.phase <= 1 ? 2.2 : this.phase === 5 ? 9 : this.phase >= 6 ? 12 : 6;
       const speeding = Math.abs(target) > Math.abs(train.speed);
       train.speed = approach(train.speed, target, (speeding ? acc : 12) * dt);
     }
