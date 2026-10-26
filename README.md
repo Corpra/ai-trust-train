@@ -1,4 +1,4 @@
-# Keeping the AI on the rails
+# The trust ladder for AI
 
 An animated 3D explainer of how trust in an AI colleague grows: from pushing a chatbot by hand to letting an autonomous agent deliver work you only inspect. A train is the AI, the railway is the context you give it, derailments are mistakes, guardrails are the rules you add after each one, and the human's distance from the train is the trust.
 
@@ -14,7 +14,7 @@ Every phase runs on the same track from A to B and plays once; a splash panel ("
 
 | # | Panel | What you see |
 |---|---|---|
-| 0 | Keeping the AI on the rails | Title panel |
+| 0 | The trust ladder for AI | Title panel |
 | 1 | Chat bot | A muddy path, no rails. The human pushes the loco by hand, knees and elbows working, and gets a quarter of the way |
 | 2 | Desktop app | Rails sweep in, the loco gains a code plate, the human climbs into the cab. Wrong fork at the switch, derails at the curve and the gap, each fixed by hand |
 | 3 | ADO/Confluence/Jira | The loco gains a context plate and an antenna. The switch is taken correctly; the curve and the gap still derail |

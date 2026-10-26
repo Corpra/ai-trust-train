@@ -32,7 +32,7 @@ export const TEXTS: Record<Lang, Texts> = {
     footer: 'Mathias Jernberg',
     phases: [
       {
-        title: 'Keeping the AI on the rails',
+        title: 'The trust ladder for AI',
         bullets: [],
       },
       {
@@ -96,7 +96,7 @@ export const TEXTS: Record<Lang, Texts> = {
     footer: 'Mathias Jernberg',
     phases: [
       {
-        title: 'Håll AI:n på spåret',
+        title: 'Tillitsstegen för AI',
         bullets: [],
       },
       {

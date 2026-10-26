@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Keeping the AI on the rails: an animated 3D explainer of how trust in an AI colleague grows.",
+  "description": "The trust ladder for AI: an animated 3D explainer of how trust in an AI colleague grows.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
