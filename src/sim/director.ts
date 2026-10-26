@@ -7,7 +7,7 @@ import { CAR_GAP, makeCrate, type Train } from '../actors/train';
 import { type Human, makeTicket, type Pose } from '../actors/human';
 import type { Hud } from '../ui/hud';
 import type { CameraRig } from '../cameraRig';
-import { writeHash, type Controls } from '../ui/input';
+import type { Controls } from '../ui/input';
 import { frameAt, newFrame, RAIL_TOP } from '../world/track';
 import { approach, clamp01 } from '../util3d';
 
@@ -123,7 +123,6 @@ export class Director implements Controls {
   private *enter(n: number, mode: EnterMode): Seq {
     const { hud } = this.d;
     this.phase = n;
-    writeHash(n);
     hud.setFinished(false);
     hud.setIdle(false);
     this.finished = false;

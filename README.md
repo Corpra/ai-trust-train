@@ -6,7 +6,7 @@ Built with Three.js, Vite and TypeScript. No framework, no external 3D assets, n
 
 - English: `/en/` (also where `/` redirects)
 - Swedish: `/sv/` (reached by direct link only)
-- The phase is in the URL hash, e.g. `/en/#4`, so links and refreshes keep their place.
+- A refresh always starts over from the title panel.
 
 ## The eight phases
 

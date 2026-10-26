@@ -10,18 +10,6 @@ export interface Controls {
   start(): void;
 }
 
-export function parseHash(): number | null {
-  const m = /^#(\d)$/.exec(location.hash);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n >= 0 && n < PHASE_COUNT ? n : null;
-}
-
-export function writeHash(n: number): void {
-  const h = `#${n}`;
-  if (location.hash !== h) history.replaceState(null, '', h);
-}
-
 function toggleFullscreen(): void {
   if (document.fullscreenElement) void document.exitFullscreen();
   else void document.documentElement.requestFullscreen?.();
@@ -85,10 +73,5 @@ export function bindInput(c: Controls, hud: Hud, canvas: HTMLCanvasElement): voi
     if (x > 0.66) c.next();
     else if (x < 0.34) c.prev();
     else c.start();
-  });
-
-  addEventListener('hashchange', () => {
-    const n = parseHash();
-    if (n !== null) c.goTo(n);
   });
 }

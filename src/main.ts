@@ -5,7 +5,7 @@ import { Train } from './actors/train';
 import { Human } from './actors/human';
 import { Director } from './sim/director';
 import { Hud } from './ui/hud';
-import { bindInput, parseHash } from './ui/input';
+import { bindInput } from './ui/input';
 import { LANG } from './config';
 import { TEXTS } from './i18n';
 
@@ -22,5 +22,7 @@ bindInput(director, hud, kit.renderer.domElement);
 
 if (import.meta.env.DEV) (window as any).__d = { director, train, human, world };
 
-director.goTo(parseHash() ?? 0, true);
+// a refresh always starts over from the title; drop any phase hash left over from older links
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+director.goTo(0, true);
 kit.start((dt) => director.update(dt));
