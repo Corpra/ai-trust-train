@@ -196,7 +196,7 @@ export class Human {
   update(dt: number): void {
     this.t += dt;
     const target = POSES[this.pose];
-    const k = Math.min(1, dt * 8);
+    const k = Math.min(1, dt * 12);
     const c = this.cur;
     for (const key of Object.keys(c) as (keyof PoseDef)[]) c[key] += (target[key] - c[key]) * k;
 

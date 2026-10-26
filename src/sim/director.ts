@@ -431,10 +431,10 @@ export class Director implements Controls {
     train.s = h.s;
     train.derail = { ...h.pose };
     world.fx.burstDust(train.worldPos(this.v1), h.id === 'gap' ? 9 : 8, 1.0);
-    yield step(0.45 * MOTION + 0.01, (t) => {
+    yield step(0.3 * MOTION + 0.01, (t) => {
       train.derailAmount = ease.out(t);
     });
-    yield wait(0.55);
+    yield wait(0.3);
 
     const p = train.worldPos(this.v1).clone();
     const r = train.right(this.v2).clone();
@@ -446,17 +446,13 @@ export class Director implements Controls {
       .addScaledVector(r, 1.55)
       .addScaledVector(f, h.id === 'gap' ? 1.2 : 0.2)
       .setY(0);
-    yield* this.walkTo(standAt, 3.5);
+    yield* this.walkTo(standAt, 5.5);
     human.faceTowards(p.x, p.z);
     human.pose = 'crouch';
-    yield wait(0.45);
-    human.pose = 'heave';
-    yield wait(0.4);
-    human.pose = 'crouch';
-    yield wait(0.4);
+    yield wait(0.3);
     human.pose = 'heave';
     const s0 = train.s;
-    yield step(0.6 * MOTION + 0.01, (t) => {
+    yield step(0.4 * MOTION + 0.01, (t) => {
       const k = ease.inOut(t);
       train.derailAmount = 1 - k;
       train.s = s0 + h.clear * k;
@@ -464,12 +460,12 @@ export class Director implements Controls {
     train.derailAmount = 0;
     world.fx.burstDust(train.worldPos(this.v1), 4, 0.5);
     human.pose = 'stand';
-    yield wait(0.25);
+    yield wait(0.15);
     if (install) {
       world.installGuardrail(h, strong);
       human.faceTowards(h.pos.x, h.pos.z);
       human.pose = 'point';
-      yield wait(0.9);
+      yield wait(0.55);
       human.pose = 'stand';
     }
     yield* this.climbIn();
@@ -488,7 +484,7 @@ export class Director implements Controls {
 
   private *fixFork(h: Hazard): Seq {
     const { train, human, world, rig } = this.d;
-    yield wait(0.5);
+    yield wait(0.3);
     const p = train.worldPos(this.v1).clone();
     const r = train.right(this.v2).clone();
     const f = train.forward(this.v3).clone();
@@ -496,20 +492,20 @@ export class Director implements Controls {
     // a side shot that keeps both the stranded loco and the lever in view
     const mid = p.clone().add(lever).multiplyScalar(0.5).setY(0.8);
     const camPos = mid.clone().addScaledVector(h.frame.right, 20).addScaledVector(h.frame.tan, -4).setY(11);
-    rig.setFixed(camPos, frameLeft(camPos, mid, 4.5), 1.2 * MOTION);
+    rig.setFixed(camPos, frameLeft(camPos, mid, 4.5), 0.8 * MOTION);
     this.detachHuman();
     yield* this.hop(p.clone().addScaledVector(r, 1.8).addScaledVector(f, -1.0).setY(0));
-    yield* this.walkTo(world.spots.lever, 4.2);
+    yield* this.walkTo(world.spots.lever, 8);
     human.faceTowards(lever.x, lever.z);
     human.pose = 'offer';
-    yield wait(0.3);
+    yield wait(0.2);
     world.setLever(true, true);
-    yield wait(0.6);
+    yield wait(0.35);
     human.pose = 'stand';
     yield* this.climbIn();
     rig.chase();
     const len = train.spurS;
-    yield step(Math.max(0.8, len / 6) * MOTION, (t) => {
+    yield step(Math.max(0.4, len / 14) * MOTION, (t) => {
       const k = ease.inOut(t);
       train.spurS = len * (1 - k);
       train.derailAmount = 1 - k;
@@ -572,7 +568,7 @@ export class Director implements Controls {
     const { human } = this.d;
     const from = human.group.position.clone();
     human.walking = false;
-    yield step(0.5 * MOTION + 0.01, (t) => {
+    yield step(0.35 * MOTION + 0.01, (t) => {
       human.group.position.lerpVectors(from, to, t);
       human.group.position.y += Math.sin(Math.PI * t) * 0.9;
     });
@@ -584,7 +580,7 @@ export class Director implements Controls {
     const r = train.right(this.v2).clone();
     const f = train.forward(this.v3).clone();
     const beside = p.clone().addScaledVector(r, 1.7).addScaledVector(f, -1.05).setY(0);
-    yield* this.walkTo(beside, 3.5);
+    yield* this.walkTo(beside, 7);
     const cab = train.loco.localToWorld(train.cabSlot.position.clone());
     yield* this.hop(cab);
     this.attachHuman(train.cabSlot, 'drive');
@@ -602,7 +598,7 @@ export class Director implements Controls {
     let target = this.frozen || this.hold ? 0 : this.cruise;
     if (!this.frozen && !this.hold && !this.reverse && this.stopAt !== null && !train.onSpur) {
       const dist = this.stopAt - train.s;
-      target = Math.min(target, Math.max(0.6, (Math.abs(this.cruise) * dist) / 9));
+      target = Math.min(target, Math.max(1.0, (Math.abs(this.cruise) * dist) / 6));
     }
     if (this.frozen) {
       train.speed = 0;

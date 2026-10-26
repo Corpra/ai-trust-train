@@ -5,9 +5,9 @@ export const LANG: Lang = document.documentElement.lang === 'sv' ? 'sv' : 'en';
 export const PHASE_COUNT = 8; // 0 = title, 1..7 = journey
 
 /** Seconds the train needs from A to B at each phase's cruising speed (0 = no driving). */
-export const TRAVEL_SECONDS = [0, 0, 12, 12, 12, 9, 8, 8];
+export const TRAVEL_SECONDS = [0, 0, 9, 9, 9, 7, 6, 6];
 /** Phase 1: how long the human pushes, and how far along the track they get. */
-export const PUSH_SECONDS = 25;
+export const PUSH_SECONDS = 16;
 export const PUSH_FRACTION = 0.25;
 
 /** Trust dial value per phase, set while the splash covers the scene. */
