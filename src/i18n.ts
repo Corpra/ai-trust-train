@@ -44,7 +44,7 @@ export const TEXTS: Record<Lang, Texts> = {
         title: 'Desktop app',
         bullets: [
           'Work files and codebase',
-          'It still goes wrong often, you watch every step',
+          'Wrong often, you watch every step',
         ],
       },
       {
@@ -107,7 +107,7 @@ export const TEXTS: Record<Lang, Texts> = {
         title: 'Desktop app',
         bullets: [
           'Arbetsfiler och kodbas',
-          'Det går fortfarande ofta fel, du bevakar varje steg',
+          'Fel ofta, du bevakar varje steg',
         ],
       },
       {
