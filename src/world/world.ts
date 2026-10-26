@@ -94,8 +94,10 @@ export class World {
   readonly hazards: Hazard[] = [];
   readonly byId: Record<HazardId, Hazard>;
   /** Loco distance when stopped at B. */
-  /** Main-line distance of the stop at B. The track runs on past it. */
+  /** Main-line distance of the stop at B. */
   readonly stopS: number;
+  /** Where the railway ends in every phase but 7, just past B (0..1 along the main line). */
+  private readonly endU: number;
   readonly spots: {
     /** Where the human waits for the self-driving train (on the slab). */
     waitAtB: THREE.Vector3;
@@ -138,7 +140,7 @@ export class World {
       const b = wobble[Math.min(wobble.length - 1, i + 1)];
       return 3.4 + (a + (b - a) * (k - i)) * 1.1;
     };
-    this.group.add(makeRibbon(this.main, mudWidth, 0.012, mudMat, 600, 0, 1, 7));
+    this.group.add(makeRibbon(this.main, mudWidth, 0.012, mudMat, 600, 0, nearestU(this.main, 67, -50), 7));
 
     this.rails = new RailLine(this.main);
     this.group.add(this.rails.group);
@@ -168,7 +170,9 @@ export class World {
     this.spurGroup.add(this.lever);
 
     // Destination slab at B, alongside the last stretch on the right
-    this.stopS = nearestU(this.main, 67, -50) * L - 2.2;
+    // the curve runs on past B, but only phase 7 shows that stretch (the train leaves and comes back on it)
+    this.endU = nearestU(this.main, 67, -50);
+    this.stopS = this.endU * L - 2.2;
     const end = frameAt(this.main, this.stopS / L, newFrame());
     const slabTop = 0.18;
     const slab = box(2.4, slabTop, 7.5, COLORS.slab, mat(COLORS.slab, { roughness: 0.95, emissive: 0x0d0e11 }));
@@ -322,6 +326,7 @@ export class World {
   setPhase(n: number): void {
     tweens.kill(this.rails);
     this.rails.reveal = n >= 3 ? 1 : 0;
+    this.rails.endU = n === 7 ? 1 : this.endU;
     this.spurGroup.visible = n >= 3;
     this.spurRails.reveal = 1;
     for (const h of this.hazards) {

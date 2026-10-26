@@ -95,7 +95,7 @@ interface SleeperData {
 
 /**
  * Rails and sleepers as instanced boxes along a curve. `reveal` (0..1) grows the line from its
- * start; `gapZone` leaves rails and sleepers out.
+ * start, `endU` cuts it short, and `gapZone` leaves rails and sleepers out.
  */
 export class RailLine {
   readonly group = new THREE.Group();
@@ -109,6 +109,8 @@ export class RailLine {
   private dirty = true;
 
   reveal = 1;
+  /** The line stops here (0..1 along the curve). */
+  endU = 1;
   gapZone: Zone | null = null;
 
   constructor(
@@ -147,7 +149,7 @@ export class RailLine {
     for (let si = 0; si < this.segs.length; si++) {
       const s = this.segs[si];
       frameAt(this.curve, s.u, f);
-      const gone = (this.gapZone && inZone(s.u, this.gapZone)) || si >= nShow;
+      const gone = (this.gapZone && inZone(s.u, this.gapZone)) || si >= nShow || s.u > this.endU;
       for (let side = -1; side <= 1; side += 2) {
         dummy.position.copy(f.pos).addScaledVector(f.right, (side * GAUGE) / 2);
         dummy.position.y = 0.06 + RAIL_H / 2;
@@ -165,7 +167,7 @@ export class RailLine {
     for (let si = 0; si < this.slp.length; si++) {
       const s = this.slp[si];
       frameAt(this.curve, s.u, f);
-      const gone = (this.gapZone && inZone(s.u, this.gapZone)) || si >= nSl;
+      const gone = (this.gapZone && inZone(s.u, this.gapZone)) || si >= nSl || s.u > this.endU;
       dummy.position.copy(f.pos);
       dummy.position.y = 0.03;
       dummy.quaternion.setFromUnitVectors(Z, f.tan);
