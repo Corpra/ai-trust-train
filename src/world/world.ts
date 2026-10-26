@@ -320,8 +320,8 @@ export class World {
   /** Reset the world for a phase (called while the splash covers the scene). */
   setPhase(n: number): void {
     tweens.kill(this.rails);
-    this.rails.reveal = n >= 2 ? 1 : 0;
-    this.spurGroup.visible = n >= 2;
+    this.rails.reveal = n >= 3 ? 1 : 0;
+    this.spurGroup.visible = n >= 3;
     this.spurRails.reveal = 1;
     for (const h of this.hazards) {
       const on = h.id !== 'switch' && n >= 5;
@@ -337,6 +337,14 @@ export class World {
     this.spurRails.markDirty();
     this.setLever(false);
     this.fx.clear();
+  }
+
+  /** Grow the rails from A to B. */
+  revealRails(d: number): void {
+    this.rails.reveal = 0;
+    this.rails.markDirty();
+    this.spurGroup.visible = true;
+    tweens.to(this.rails, { reveal: 1 }, d, ease.inOut);
   }
 
   setLever(flipped: boolean, animate = false): void {

@@ -138,6 +138,7 @@ export class Director implements Controls {
       this.reset(n);
       hud.dip(false);
       yield wait(DIP);
+      yield* this.prelude(n);
     } else {
       if (hud.splashShown) {
         // the panel already covers the scene: swap its text instead of sliding out and back in
@@ -156,8 +157,10 @@ export class Director implements Controls {
       this.skip = false;
       hud.splashOut();
       yield wait(SPLASH_OUT * 0.7);
+      // idle: the phase's setup plays out, then the scene waits for space (a press during the setup queues the start)
       this.idle = true;
       hud.setIdle(true);
+      yield* this.prelude(n);
       yield until(() => this.started);
       this.idle = false;
       hud.setIdle(false);
@@ -187,7 +190,7 @@ export class Director implements Controls {
 
     train.reset();
     train.derail = { ...NO_POSE };
-    train.baseY = n <= 1 ? 0.03 : RAIL_TOP;
+    train.baseY = n <= 2 ? 0.03 : RAIL_TOP;
     world.setPhase(n);
     this.clearCrates();
     this.ticket.visible = false;
@@ -196,8 +199,8 @@ export class Director implements Controls {
     hud.setTrust(TRUST[n]);
     snapShow(human.clipboard, n >= 7);
 
-    train.setUpgrade('code', n >= 2);
-    train.setUpgrade('context', n >= 3);
+    train.setUpgrade('code', n >= 3);
+    train.setUpgrade('context', n >= 4);
     if (n >= 7) train.addCart();
     // start far enough along the track that the wagon sits behind the loco, not on top of it
     if (n === 7) train.s = CAR_GAP + 0.8;
@@ -211,17 +214,17 @@ export class Director implements Controls {
       case 1:
         this.attachHuman(train.pushSlot, 'push');
         break;
+      case 2:
       case 7: {
-        // the ticket is already handed over: it sits in the loco, the human points down the track
-        train.loco.add(this.ticket);
-        this.ticket.position.copy(train.ticketSlot.position);
-        this.ticket.rotation.set(0, 0, 0);
-        this.ticket.scale.setScalar(1);
-        this.ticket.visible = true;
         const beside = p.clone().addScaledVector(r, 2.5).addScaledVector(f, 0.9).setY(0);
         this.placeHuman(beside, p.x, p.z, 'stand');
-        human.faceAlong(f);
-        human.pose = 'point';
+        if (n === 7) {
+          human.handR.add(this.ticket);
+          this.ticket.position.set(0, -0.02, 0.12);
+          this.ticket.rotation.set(-0.3, 0, 0);
+          this.ticket.scale.setScalar(1);
+          this.ticket.visible = true;
+        }
         break;
       }
       default:
@@ -230,6 +233,56 @@ export class Director implements Controls {
     human.update(0);
 
     rig.chase(true);
+  }
+
+  /** Setup that plays during idle, before the train is allowed to move. */
+  private *prelude(n: number): Seq {
+    const { world, train, human, scene } = this.d;
+    switch (n) {
+      case 2: {
+        // rails sweep in, the loco settles onto them, gains its code plate, and the human climbs in
+        yield wait(0.3);
+        world.revealRails(1.2 * MOTION);
+        tweens.to(train, { baseY: RAIL_TOP }, 0.35 * MOTION, ease.out);
+        yield wait(1.4 * MOTION);
+        yield* this.upgrade('code');
+        yield* this.climbIn();
+        break;
+      }
+      case 3:
+        yield wait(0.3);
+        yield* this.upgrade('context');
+        break;
+      case 7: {
+        // hand over the ticket, then point down the track
+        yield wait(0.3);
+        human.pose = 'offer';
+        yield wait(0.5);
+        const from = this.ticket.getWorldPosition(new THREE.Vector3());
+        scene.attach(this.ticket);
+        const to = train.loco.localToWorld(train.ticketSlot.position.clone());
+        yield step(0.5 * MOTION + 0.01, (t) => {
+          this.ticket.position.lerpVectors(from, to, t);
+          this.ticket.position.y += Math.sin(Math.PI * t) * 0.6;
+        });
+        train.loco.attach(this.ticket);
+        this.ticket.rotation.set(0, 0, 0);
+        yield wait(0.2);
+        human.faceAlong(train.forward(this.v3).clone());
+        human.pose = 'point';
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /** The loco gains a visible enhancement: codebase in phase 2, context in phase 3. */
+  private *upgrade(kind: 'code' | 'context'): Seq {
+    const { train, world } = this.d;
+    train.setUpgrade(kind, true, true);
+    world.fx.flash(train.worldPos(this.v1).clone().setY(RAIL_TOP + 0.3), 0xffffff);
+    yield wait(0.9 * MOTION);
   }
 
   private *script(n: number): Seq {
@@ -291,7 +344,6 @@ export class Director implements Controls {
   }
 
   private *p2(): Seq {
-    // rails, code plate and driver are all in place during idle: the press only starts the train
     const H = this.d.world.byId;
     yield wait(0.4);
     yield* this.run([
