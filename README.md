@@ -27,7 +27,7 @@ Every phase runs on the same track from A to B and plays once; a splash panel ("
 
 | Key | Action |
 |---|---|
-| ␣, click on the splash | Start the train (during a splash: dismiss it now) |
+| ␣, click on the splash | Start the train (during a splash: dismiss it now; after the phase has played: replay it) |
 | → ⏎ PageDown, click | Next phase (during a splash: dismiss it now) |
 | ← PageUp Backspace | Previous phase |
 | 0–7, Home, End | Jump to a phase |

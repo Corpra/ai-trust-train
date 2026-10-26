@@ -50,6 +50,8 @@ export class Director implements Controls {
   /** The scene sits idle after the splash until the presenter starts the phase. */
   private idle = false;
   private started = false;
+  /** The phase has played through; space replays it. */
+  private finished = false;
 
   private cruise = 0;
   private hold = true;
@@ -102,6 +104,7 @@ export class Director implements Controls {
       return;
     }
     if (this.phase === 0) this.next();
+    else if (this.finished) this.replay();
   }
 
   goTo(n: number, initial = false): void {
@@ -123,6 +126,7 @@ export class Director implements Controls {
     writeHash(n);
     hud.setFinished(false);
     hud.setIdle(false);
+    this.finished = false;
     this.inHold = false;
     this.skip = false;
     this.idle = false;
@@ -160,7 +164,10 @@ export class Director implements Controls {
     }
 
     yield* this.script(n);
-    if (n >= 1) hud.setFinished(true);
+    if (n >= 1) {
+      this.finished = true;
+      hud.setFinished(true);
+    }
   }
 
   /** Put the scene in the starting state of phase n (called while the splash covers it). */

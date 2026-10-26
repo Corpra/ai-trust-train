@@ -48,6 +48,12 @@ canvas {
   pointer-events: auto;
 }
 
+/* full-screen fades and hints must not catch clicks meant for the nav beneath them */
+#hud > .dip,
+#hud > .start-hint {
+  pointer-events: none;
+}
+
 /* Right-hand column: heading and bullets on a dark gradient */
 .overlay {
   position: absolute;
