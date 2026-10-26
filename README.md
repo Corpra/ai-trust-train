@@ -21,7 +21,7 @@ Every phase runs on the same track from A to B and plays once; a splash panel ("
 | 4 | Iterative guardrails | Each derail is fixed and gets a guardrail: a fence on the curve, a bridge plate over the gap |
 | 5 | Increase speed | Faster. The curve guardrail is not enough at this speed: the train tips over it, is fixed, and the guardrail is reinforced. The bridge holds |
 | 6 | Smooth ride | Full speed, every guardrail flashes as the train passes |
-| 7 | Self-driving train | The human hands over a ticket at A and waits at B. Crates land on the cart along the way; at B two pass and one is sent back |
+| 7 | Self-driving train | The human hands over a ticket at A and waits at B. Crates land on the cart along the way; at B two pass and one is rejected. The train takes it away, out of the picture, and is soon back with it fixed and green |
 
 ## Controls
 

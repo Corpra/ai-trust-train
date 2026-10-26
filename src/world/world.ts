@@ -94,13 +94,14 @@ export class World {
   readonly hazards: Hazard[] = [];
   readonly byId: Record<HazardId, Hazard>;
   /** Loco distance when stopped at B. */
+  /** Main-line distance of the stop at B. The track runs on past it. */
   readonly stopS: number;
   readonly spots: {
     /** Where the human waits for the self-driving train (on the slab). */
     waitAtB: THREE.Vector3;
     /** Where the human stands beside the lever. */
     lever: THREE.Vector3;
-    /** Two slab slots for accepted crates. */
+    /** Three slab slots for accepted crates. */
     crates: THREE.Vector3[];
     slabTop: number;
   };
@@ -167,7 +168,7 @@ export class World {
     this.spurGroup.add(this.lever);
 
     // Destination slab at B, alongside the last stretch on the right
-    this.stopS = L - 2.2;
+    this.stopS = nearestU(this.main, 67, -50) * L - 2.2;
     const end = frameAt(this.main, this.stopS / L, newFrame());
     const slabTop = 0.18;
     const slab = box(2.4, slabTop, 7.5, COLORS.slab, mat(COLORS.slab, { roughness: 0.95, emissive: 0x0d0e11 }));
@@ -184,7 +185,7 @@ export class World {
     this.spots = {
       waitAtB: end.pos.clone().addScaledVector(end.right, 2.2).addScaledVector(end.tan, -0.6).setY(slabTop),
       lever: sw.pos.clone().addScaledVector(sw.right, 1.1).addScaledVector(sw.tan, -0.5).setY(0),
-      crates: [0, 1].map((i) => end.pos.clone().addScaledVector(end.right, 2.75).addScaledVector(end.tan, -3.2 - i * 1.0).setY(slabTop + 0.36)),
+      crates: [0, 1, 2].map((i) => end.pos.clone().addScaledVector(end.right, 2.75).addScaledVector(end.tan, -2.4 - i * 1.0).setY(slabTop + 0.36)),
       slabTop,
     };
 

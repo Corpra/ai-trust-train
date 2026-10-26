@@ -3,7 +3,7 @@ import { DIP, MOTION, PHASE_COUNT, PUSH_FRACTION, PUSH_SECONDS, SPLASH_HOLD, SPL
 import { ease, Sequencer, step, until, wait, type Seq, tweens } from '../tween';
 import { pop, snapShow } from '../fx';
 import type { World, Hazard } from '../world/world';
-import { CAR_GAP, makeCrate, type Train } from '../actors/train';
+import { CAR_GAP, makeCrate, paintCrate, type Train } from '../actors/train';
 import { type Human, makeTicket, type Pose } from '../actors/human';
 import type { Hud } from '../ui/hud';
 import type { CameraRig } from '../cameraRig';
@@ -315,7 +315,7 @@ export class Director implements Controls {
   /* ---------------- Phase scripts ---------------- */
 
   private cruiseFor(n: number): number {
-    return TRAVEL_SECONDS[n] > 0 ? this.d.world.mainLen / TRAVEL_SECONDS[n] : 0;
+    return TRAVEL_SECONDS[n] > 0 ? this.d.world.stopS / TRAVEL_SECONDS[n] : 0;
   }
 
   private go(): void {
@@ -331,7 +331,7 @@ export class Director implements Controls {
   private *p1(): Seq {
     const { world, human } = this.d;
     yield wait(0.3);
-    const dist = world.mainLen * PUSH_FRACTION;
+    const dist = world.stopS * PUSH_FRACTION;
     this.stopAt = dist;
     this.hold = false;
     this.pushing = true;
@@ -383,7 +383,7 @@ export class Director implements Controls {
   }
 
   private *p7(): Seq {
-    const { world, train, human, scene, rig } = this.d;
+    const { world, train, human, rig } = this.d;
     const H = world.byId;
     yield wait(0.4);
     this.go();
@@ -410,34 +410,55 @@ export class Director implements Controls {
     yield wait(0.6);
 
     // inspection: two good crates, one rejected
-    const cargo = train.cars[0];
-    const r = train.right(this.v2).clone();
-    for (let i = 0; i < 3; i++) {
-      const crate = this.crates[i];
-      const slot = cargo.crateSlots[i].getWorldPosition(new THREE.Vector3());
-      const standAt = slot.clone().addScaledVector(r, 1.75).setY(world.spots.slabTop);
-      yield* this.walkTo(standAt, 2.6);
-      human.faceTowards(slot.x, slot.z);
-      human.pose = 'inspect';
-      yield wait(0.9);
-      const ok = i < 2;
-      world.fx.verdict(slot.clone().add(new THREE.Vector3(0, 1.0, 0)), ok);
-      yield wait(0.55);
-      if (ok) {
-        scene.attach(crate);
-        const a = crate.position.clone();
-        const b = world.spots.crates[i];
-        yield step(0.65 * MOTION + 0.01, (t) => {
-          crate.position.lerpVectors(a, b, t);
-          crate.position.y += Math.sin(Math.PI * t) * 0.8;
-        });
-      }
-      human.pose = 'stand';
-      yield wait(0.2);
-    }
-    // the train stays at B with the rejected crate still on board
+    for (let i = 0; i < 3; i++) yield* this.inspectCrate(i, i < 2);
     human.faceTowards(stopFrame.x, stopFrame.z);
-    yield wait(0.6);
+    yield wait(0.3);
+
+    // the train takes the rejected crate away, out of the picture, and is back with it fixed
+    this.stopAt = null;
+    this.hold = false;
+    this.cruise = this.cruiseFor(7);
+    yield until(() => train.s > world.stopS + 26);
+    this.hold = true;
+    train.speed = 0;
+    paintCrate(this.crates[2], true);
+    yield wait(0.5);
+    train.s = world.stopS - 30;
+    this.stopAt = world.stopS;
+    this.hold = false;
+    yield until(() => this.stopped());
+    yield wait(0.3);
+    yield* this.inspectCrate(2, true);
+    human.faceTowards(stopFrame.x, stopFrame.z);
+    yield wait(0.4);
+  }
+
+  /** The human walks to crate i on the wagon, judges it, and moves an accepted one onto the slab. */
+  private *inspectCrate(i: number, ok: boolean): Seq {
+    const { world, train, human, scene } = this.d;
+    const crate = this.crates[i];
+    const r = train.right(this.v2).clone();
+    const slot = train.cars[0].crateSlots[i].getWorldPosition(new THREE.Vector3());
+    const standAt = slot.clone().addScaledVector(r, 1.75).setY(world.spots.slabTop);
+    yield* this.walkTo(standAt, 2.6);
+    human.faceTowards(slot.x, slot.z);
+    human.pose = 'inspect';
+    yield wait(0.9);
+    world.fx.verdict(slot.clone().add(new THREE.Vector3(0, 1.0, 0)), ok);
+    yield wait(0.55);
+    if (ok) {
+      scene.attach(crate);
+      const a = crate.position.clone();
+      const b = world.spots.crates[i];
+      yield step(0.65 * MOTION + 0.01, (t) => {
+        crate.position.lerpVectors(a, b, t);
+        crate.position.y += Math.sin(Math.PI * t) * 0.8;
+      });
+    } else {
+      paintCrate(crate, false);
+    }
+    human.pose = 'stand';
+    yield wait(0.2);
   }
 
   /* ---------------- Building blocks ---------------- */

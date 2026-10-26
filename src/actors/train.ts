@@ -93,13 +93,27 @@ function makeGlyphTexture(kind: Upgrade): THREE.CanvasTexture {
 
 export function makeCrate(): THREE.Group {
   const g = new THREE.Group();
-  g.add(box(0.6, 0.6, 0.6, COLORS.crate, mat(COLORS.crate, { roughness: 0.9 })));
+  const body = box(0.6, 0.6, 0.6, COLORS.crate, mat(COLORS.crate, { roughness: 0.9 }));
+  body.name = 'body';
+  g.add(body);
   for (const y of [-0.17, 0.17]) {
     const band = box(0.62, 0.05, 0.62, COLORS.crateDark, mat(COLORS.crateDark, { roughness: 0.8 }));
     band.position.y = y;
     g.add(band);
   }
   return g;
+}
+
+/** Tint a crate: `ok` paints it the approval green, otherwise the rejection red. */
+export function paintCrate(crate: THREE.Group, ok: boolean): void {
+  const body = crate.getObjectByName('body') as THREE.Mesh | undefined;
+  if (!body) return;
+  // materials from mat() are shared by colour, so give this crate its own before tinting it
+  const m = (body.material as THREE.MeshStandardMaterial).clone();
+  body.material = m;
+  m.color.set(ok ? COLORS.ok : COLORS.bad);
+  m.emissive.set(ok ? COLORS.ok : COLORS.bad);
+  m.emissiveIntensity = 0.25;
 }
 
 /* ---------- the train ---------- */

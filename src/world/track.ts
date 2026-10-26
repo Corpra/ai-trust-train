@@ -27,6 +27,10 @@ const MAIN_PTS: [number, number][] = [
   [56, -61],
   [62, -56],
   [67, -50],
+  // past B: room for the phase 7 train to leave the picture and come back
+  [73, -43],
+  [80, -35],
+  [88, -26],
 ];
 
 export function makeMain(): THREE.CatmullRomCurve3 {
