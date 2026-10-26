@@ -190,7 +190,7 @@ export class Director implements Controls {
     snapShow(human.clipboard, n >= 7);
 
     train.setUpgrade('code', n >= 2);
-    train.setUpgrade('context', n >= 4);
+    train.setUpgrade('context', n >= 3);
     if (n >= 7) train.addCart();
     // start far enough along the track that the wagon sits behind the loco, not on top of it
     if (n === 7) train.s = CAR_GAP + 0.8;
@@ -205,13 +205,16 @@ export class Director implements Controls {
         this.attachHuman(train.pushSlot, 'push');
         break;
       case 7: {
-        const beside = p.clone().addScaledVector(r, 2.5).addScaledVector(f, 0.9).setY(0);
-        this.placeHuman(beside, p.x, p.z, 'stand');
-        human.handR.add(this.ticket);
-        this.ticket.position.set(0, -0.02, 0.12);
-        this.ticket.rotation.set(-0.3, 0, 0);
+        // the ticket is already handed over: it sits in the loco, the human points down the track
+        train.loco.add(this.ticket);
+        this.ticket.position.copy(train.ticketSlot.position);
+        this.ticket.rotation.set(0, 0, 0);
         this.ticket.scale.setScalar(1);
         this.ticket.visible = true;
+        const beside = p.clone().addScaledVector(r, 2.5).addScaledVector(f, 0.9).setY(0);
+        this.placeHuman(beside, p.x, p.z, 'stand');
+        human.faceAlong(f);
+        human.pose = 'point';
         break;
       }
       default:
@@ -294,7 +297,6 @@ export class Director implements Controls {
   private *p3(): Seq {
     const H = this.d.world.byId;
     yield wait(0.4);
-    yield* this.upgrade('context');
     yield* this.run([
       { h: H.curve, kind: 'derail' },
       { h: H.gap, kind: 'derail' },
@@ -325,27 +327,7 @@ export class Director implements Controls {
   private *p7(): Seq {
     const { world, train, human, scene, rig } = this.d;
     const H = world.byId;
-    yield wait(0.5);
-
-    // hand over the ticket
-    human.pose = 'offer';
-    yield wait(0.7);
-    const from = this.ticket.getWorldPosition(new THREE.Vector3());
-    scene.attach(this.ticket);
-    const to = train.loco.localToWorld(train.ticketSlot.position.clone());
-    yield step(0.6 * MOTION + 0.01, (t) => {
-      this.ticket.position.lerpVectors(from, to, t);
-      this.ticket.position.y += Math.sin(Math.PI * t) * 0.6;
-    });
-    train.loco.attach(this.ticket);
-    this.ticket.rotation.set(0, 0, 0);
-    yield wait(0.3);
-
-    // point down the track, and off it goes
-    const fwd = train.forward(this.v3).clone();
-    human.faceAlong(fwd);
-    human.pose = 'point';
-    yield wait(0.8);
+    yield wait(0.4);
     this.go();
     yield wait(1.2);
     human.pose = 'stand';
@@ -419,14 +401,6 @@ export class Director implements Controls {
     }
     this.stopAt = world.stopS;
     yield until(() => this.stopped());
-  }
-
-  /** The loco gains a visible enhancement: codebase in phase 2, context in phase 3. */
-  private *upgrade(kind: 'code' | 'context'): Seq {
-    const { train, world } = this.d;
-    train.setUpgrade(kind, true, true);
-    world.fx.flash(train.worldPos(this.v1).clone().setY(RAIL_TOP + 0.3), 0xffffff);
-    yield wait(1.1 * MOTION);
   }
 
   private dropCrate(i: number): void {
@@ -643,6 +617,7 @@ export class Director implements Controls {
       const ph = this.time * 2.3;
       v *= 0.35 + 0.65 * Math.abs(Math.sin(ph));
       human.pushPhase = ph * 2 - Math.PI / 2;
+      human.stride += ((v * dt) / 1.0) * Math.PI * 2;
     }
 
     if (!this.frozen && v !== 0) {

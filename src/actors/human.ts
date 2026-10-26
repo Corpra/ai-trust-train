@@ -41,7 +41,7 @@ const P = (p: Partial<PoseDef>): PoseDef => ({
 
 const POSES: Record<Pose, PoseDef> = {
   stand: P({}),
-  push: P({ lean: 0.8, head: 0.3, shL: 1.3, shR: 1.3, elL: 0.25, elR: 0.25, hipL: 0.55, hipR: -0.35, kneeL: 0.65, kneeR: 0.25 }),
+  push: P({ lean: 0.8, head: 0.3, shL: 1.3, shR: 1.3, elL: 0.25, elR: 0.25, hipL: 0.15, hipR: 0.15, kneeL: 0.35, kneeR: 0.35 }),
   drive: P({ lean: 0.12, shL: 0.85, shR: 0.85, elL: 1.15, elR: 1.15, outL: 0.12, outR: 0.12 }),
   crouch: P({ lean: 0.6, head: 0.25, shL: 0.55, shR: 0.55, elL: 0.15, elR: 0.15, hipL: 1.15, hipR: 1.15, kneeL: 1.95, kneeR: 1.95 }),
   heave: P({ lean: 0.22, head: -0.15, shL: 1.1, shR: 1.1, elL: 1.25, elR: 1.25, hipL: 0.35, hipR: 0.35, kneeL: 0.6, kneeR: 0.6 }),
@@ -105,6 +105,8 @@ export class Human {
   pose: Pose = 'stand';
   /** Driven by the director while pushing so the shoves match the train's lurches. */
   pushPhase = 0;
+  /** Stride cycle (radians) while pushing, advanced by the distance the train has moved. */
+  stride = 0;
   private t = Math.random() * 10;
   private readonly cur: PoseDef = P({});
 
@@ -223,10 +225,14 @@ export class Human {
     if (this.pose === 'push') {
       const e = Math.sin(this.pushPhase);
       lean += e * 0.07;
-      kneeL += (0.5 + 0.5 * e) * 0.25;
-      kneeR += (0.5 + 0.5 * e) * 0.2;
       elL += (0.5 - 0.5 * e) * 0.3;
       elR += (0.5 - 0.5 * e) * 0.3;
+      // short driving steps: the legs swing with the distance covered, so they plant when the train stalls
+      const sw = Math.sin(this.stride);
+      hipL += sw * 0.5;
+      hipR -= sw * 0.5;
+      kneeL += Math.max(0, Math.sin(this.stride + 0.4)) * 0.85;
+      kneeR += Math.max(0, Math.sin(this.stride + Math.PI + 0.4)) * 0.85;
     }
     if (this.pose === 'stand' && !this.walking) {
       lean += Math.sin(this.t * 1.1) * 0.012;
