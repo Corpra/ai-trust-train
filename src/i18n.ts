@@ -17,7 +17,6 @@ export interface Texts {
   hint: string;
   /** Shown while a phase waits in idle for the presenter. */
   startHint: string;
-  footer: string;
 }
 
 export const TEXTS: Record<Lang, Texts> = {
