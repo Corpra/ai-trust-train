@@ -15,6 +15,8 @@ export interface Texts {
   next: string;
   replay: string;
   hint: string;
+  /** Shown while a phase waits in idle for the presenter. */
+  startHint: string;
   footer: string;
 }
 
@@ -26,6 +28,7 @@ export const TEXTS: Record<Lang, Texts> = {
     next: 'Next ›',
     replay: '↻ Replay',
     hint: '→ to begin',
+    startHint: 'Space to start the train',
     footer: 'Mathias Jernberg',
     phases: [
       {
@@ -35,65 +38,49 @@ export const TEXTS: Record<Lang, Texts> = {
       {
         title: 'Chat bot',
         bullets: [
-          'You type, it answers, you copy the result over by hand',
-          'Nothing moves unless you push',
-          'It knows the internet, not your work',
+          'Copy and paste',
+          'No access to your work files',
         ],
       },
       {
-        title: 'Adding the codebase',
+        title: 'Desktop app',
         bullets: [
-          'The desktop app can read and change your project itself',
-          "You're the driver now, not the engine",
-          'It still goes wrong often, so you watch every move',
+          'Work files and codebase',
+          'It still goes wrong often, you watch every step',
         ],
       },
       {
-        title: 'Adding ADO/Confluence/Jira',
+        title: 'ADO/Confluence/Jira',
         bullets: [
-          'Connect your backlog, wiki and requirements',
-          "It knows what you're building and why",
-          'Fewer surprises, smoother ride',
+          'It knows what we build and why',
+          'Fewer mistakes',
         ],
       },
       {
         title: 'Iterative guardrails',
         bullets: [
-          'Every derailment becomes a rule: a line in CLAUDE.md, a lint rule, a test',
-          'The same mistake never happens twice',
-          'The track gets safer every week',
+          'Fix and prevent mistakes as they happen',
         ],
       },
       {
         title: 'Increase speed',
         bullets: [
-          'Fewer crashes means bigger tasks and less checking',
-          'New speed, new ways to fail',
-          'Same recipe: fix the cause, add a guardrail',
+          'Bigger tasks',
+          'New speed, new mistakes',
+          'Keep fixing and preventing',
         ],
       },
       {
         title: 'Smooth ride',
         bullets: [
-          'Trip after trip without a derailment',
-          "You watch, but don't touch",
-          'Time to step out of the cab',
+          'Task after task without major mistakes',
         ],
       },
       {
         title: 'Self-driving train',
         bullets: [
           'You describe the task and let it go',
-          'It arrives with the work done',
-          'You check the cargo before it ships',
-        ],
-      },
-      {
-        title: 'Trust is built, not given',
-        bullets: [
-          'Chat → tools → context → guardrails → speed → autonomy',
-          'Each step is earned by the one before',
-          'Start where you are, lay one rail',
+          'You check the result',
         ],
       },
     ],
@@ -105,6 +92,7 @@ export const TEXTS: Record<Lang, Texts> = {
     next: 'Nästa ›',
     replay: '↻ Spela igen',
     hint: '→ för att börja',
+    startHint: 'Mellanslag startar tåget',
     footer: 'Mathias Jernberg',
     phases: [
       {
@@ -114,65 +102,49 @@ export const TEXTS: Record<Lang, Texts> = {
       {
         title: 'Chat bot',
         bullets: [
-          'Du skriver, den svarar, du kopierar över resultatet för hand',
-          'Inget rör sig om du inte knuffar',
-          'Den kan internet, inte ditt jobb',
+          'Klippa/klistra',
+          'Den saknar access till dina arbetsfiler',
         ],
       },
       {
-        title: 'Lägg till kodbasen',
+        title: 'Desktop app',
         bullets: [
-          'Skrivbordsappen kan läsa och ändra i projektet själv',
-          'Nu är du föraren, inte motorn',
-          'Det går fortfarande ofta fel, så du bevakar varje steg',
+          'Arbetsfiler och kodbas',
+          'Det går fortfarande ofta fel, du bevakar varje steg',
         ],
       },
       {
-        title: 'Lägg till ADO/Confluence/Jira',
+        title: 'ADO/Confluence/Jira',
         bullets: [
-          'Koppla på backlog, wiki och krav',
-          'Den vet vad ni bygger och varför',
-          'Färre överraskningar, jämnare resa',
+          'Den vet vad vi bygger och varför',
+          'Färre fel',
         ],
       },
       {
         title: 'Iterativa skyddsräcken',
         bullets: [
-          'Varje urspårning blir en regel: en rad i CLAUDE.md, en lintregel, ett test',
-          'Samma misstag händer aldrig två gånger',
-          'Spåret blir säkrare för varje vecka',
+          'Rätta och förebygg fel när de händer',
         ],
       },
       {
         title: 'Öka farten',
         bullets: [
-          'Färre krascher betyder större uppgifter och mindre kontroll',
-          'Ny fart, nya sätt att misslyckas',
-          'Samma recept: åtgärda orsaken, sätt upp ett räcke',
+          'Större uppgifter',
+          'Ny fart, nya fel',
+          'Fortsätt rätta och förebygg',
         ],
       },
       {
         title: 'Går som tåget',
         bullets: [
-          'Resa efter resa utan urspårning',
-          'Du tittar, men rör inget',
-          'Dags att kliva ur hytten',
+          'Uppgift efter uppgift utan större fel',
         ],
       },
       {
         title: 'Självkörande',
         bullets: [
           'Du beskriver uppgiften och släpper iväg den',
-          'Den kommer fram med jobbet gjort',
-          'Du kontrollerar lasten innan den skickas vidare',
-        ],
-      },
-      {
-        title: 'Tillit byggs, den ges inte',
-        bullets: [
-          'Chatt → verktyg → kontext → räcken → fart → autonomi',
-          'Varje steg förtjänas av det före',
-          'Börja där du är, lägg en räls',
+          'Du kontrollerar resultatet',
         ],
       },
     ],

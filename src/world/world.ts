@@ -105,7 +105,6 @@ export class World {
     slabTop: number;
   };
   /** Set by the director: brighter guardrails on the end screen. */
-  endGlow = false;
 
   private readonly spurRails: RailLine;
   private readonly spurGroup = new THREE.Group();
@@ -321,8 +320,8 @@ export class World {
   /** Reset the world for a phase (called while the splash covers the scene). */
   setPhase(n: number): void {
     tweens.kill(this.rails);
-    this.rails.reveal = n >= 3 ? 1 : 0;
-    this.spurGroup.visible = n >= 3;
+    this.rails.reveal = n >= 2 ? 1 : 0;
+    this.spurGroup.visible = n >= 2;
     this.spurRails.reveal = 1;
     for (const h of this.hazards) {
       const on = h.id !== 'switch' && n >= 5;
@@ -337,16 +336,7 @@ export class World {
     this.rails.markDirty();
     this.spurRails.markDirty();
     this.setLever(false);
-    this.endGlow = n === 8;
     this.fx.clear();
-  }
-
-  /** Grow the rails from A to B. */
-  revealRails(d: number): void {
-    this.rails.reveal = 0;
-    this.rails.markDirty();
-    this.spurGroup.visible = true;
-    tweens.to(this.rails, { reveal: 1 }, d, ease.inOut);
   }
 
   setLever(flipped: boolean, animate = false): void {
@@ -386,7 +376,7 @@ export class World {
     for (const h of this.hazards) {
       if (!h.guardMat) continue;
       h.glow = Math.max(0, h.glow - dt * 1.6);
-      h.guardMat.emissiveIntensity = (this.endGlow ? 1.1 : GUARD_BASE) + h.glow * 1.3;
+      h.guardMat.emissiveIntensity = GUARD_BASE + h.glow * 1.3;
     }
     this.fx.update(dt);
   }

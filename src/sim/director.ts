@@ -3,7 +3,7 @@ import { DIP, MOTION, PHASE_COUNT, PUSH_FRACTION, PUSH_SECONDS, SPLASH_HOLD, SPL
 import { ease, Sequencer, step, until, wait, type Seq, tweens } from '../tween';
 import { pop, snapShow } from '../fx';
 import type { World, Hazard } from '../world/world';
-import { makeCrate, type Train } from '../actors/train';
+import { CAR_GAP, makeCrate, type Train } from '../actors/train';
 import { type Human, makeTicket, type Pose } from '../actors/human';
 import type { Hud } from '../ui/hud';
 import type { CameraRig } from '../cameraRig';
@@ -32,7 +32,6 @@ interface Ev {
   index?: number;
 }
 
-const END_CAM = { pos: new THREE.Vector3(146, 96, 58), look: new THREE.Vector3(57, 0, -52) };
 const NO_POSE = { lat: 0, lift: 0, roll: 0, pitch: 0, yaw: 0 };
 
 /** Move a look target along the camera's right so the subject sits in the left part of the frame. */
@@ -48,6 +47,9 @@ export class Director implements Controls {
   private readonly seq = new Sequencer();
   private inHold = false;
   private skip = false;
+  /** The scene sits idle after the splash until the presenter starts the phase. */
+  private idle = false;
+  private started = false;
 
   private cruise = 0;
   private hold = true;
@@ -90,6 +92,18 @@ export class Director implements Controls {
     this.goTo(this.phase - 1);
   }
 
+  start(): void {
+    if (this.inHold) {
+      this.skip = true;
+      return;
+    }
+    if (this.idle) {
+      this.started = true;
+      return;
+    }
+    if (this.phase === 0) this.next();
+  }
+
   goTo(n: number, initial = false): void {
     n = Math.max(0, Math.min(PHASE_COUNT - 1, n));
     if (n === this.phase && !initial) return;
@@ -97,7 +111,7 @@ export class Director implements Controls {
   }
 
   replay(): void {
-    if (this.phase === 0 || this.phase === PHASE_COUNT - 1) return;
+    if (this.phase === 0) return;
     this.seq.run(this.enter(this.phase, 'dip'));
   }
 
@@ -108,8 +122,11 @@ export class Director implements Controls {
     this.phase = n;
     writeHash(n);
     hud.setFinished(false);
+    hud.setIdle(false);
     this.inHold = false;
     this.skip = false;
+    this.idle = false;
+    this.started = false;
 
     if (mode === 'dip') {
       hud.dip(true);
@@ -135,10 +152,15 @@ export class Director implements Controls {
       this.skip = false;
       hud.splashOut();
       yield wait(SPLASH_OUT * 0.7);
+      this.idle = true;
+      hud.setIdle(true);
+      yield until(() => this.started);
+      this.idle = false;
+      hud.setIdle(false);
     }
 
     yield* this.script(n);
-    if (n >= 1 && n < PHASE_COUNT - 1) hud.setFinished(true);
+    if (n >= 1) hud.setFinished(true);
   }
 
   /** Put the scene in the starting state of phase n (called while the splash covers it). */
@@ -167,18 +189,11 @@ export class Director implements Controls {
     hud.setTrust(TRUST[n]);
     snapShow(human.clipboard, n >= 7);
 
-    train.setUpgrade('code', n >= 3);
+    train.setUpgrade('code', n >= 2);
     train.setUpgrade('context', n >= 4);
     if (n >= 7) train.addCart();
-    if (n === 8) {
-      train.s = world.stopS;
-      for (let i = 0; i < 2; i++) {
-        const c = makeCrate();
-        c.position.copy(world.spots.crates[i]);
-        scene.add(c);
-        this.crates.push(c);
-      }
-    }
+    // start far enough along the track that the wagon sits behind the loco, not on top of it
+    if (n === 7) train.s = CAR_GAP + 0.8;
     train.update(0);
 
     const p = train.worldPos(this.v1).clone();
@@ -189,22 +204,14 @@ export class Director implements Controls {
       case 1:
         this.attachHuman(train.pushSlot, 'push');
         break;
-      case 2:
       case 7: {
         const beside = p.clone().addScaledVector(r, 2.5).addScaledVector(f, 0.9).setY(0);
         this.placeHuman(beside, p.x, p.z, 'stand');
-        if (n === 7) {
-          human.handR.add(this.ticket);
-          this.ticket.position.set(0, -0.02, 0.12);
-          this.ticket.rotation.set(-0.3, 0, 0);
-          this.ticket.scale.setScalar(1);
-          this.ticket.visible = true;
-        }
-        break;
-      }
-      case 8: {
-        const w = world.spots.waitAtB;
-        this.placeHuman(w, p.x, p.z, 'stand');
+        human.handR.add(this.ticket);
+        this.ticket.position.set(0, -0.02, 0.12);
+        this.ticket.rotation.set(-0.3, 0, 0);
+        this.ticket.scale.setScalar(1);
+        this.ticket.visible = true;
         break;
       }
       default:
@@ -212,8 +219,7 @@ export class Director implements Controls {
     }
     human.update(0);
 
-    if (n === PHASE_COUNT - 1) rig.setFixed(END_CAM.pos, END_CAM.look, 0);
-    else rig.chase(true);
+    rig.chase(true);
   }
 
   private *script(n: number): Seq {
@@ -275,14 +281,9 @@ export class Director implements Controls {
   }
 
   private *p2(): Seq {
-    const { world, train } = this.d;
+    // rails, code plate and driver are all in place during idle: the press only starts the train
+    const H = this.d.world.byId;
     yield wait(0.4);
-    world.revealRails(1.5 * MOTION);
-    tweens.to(train, { baseY: RAIL_TOP }, 0.35 * MOTION, ease.out);
-    yield wait(1.75 * MOTION);
-    yield* this.upgrade('code');
-    yield* this.climbIn();
-    const H = world.byId;
     yield* this.run([
       { h: H.switch, kind: 'fork' },
       { h: H.curve, kind: 'derail' },
@@ -394,16 +395,9 @@ export class Director implements Controls {
       human.pose = 'stand';
       yield wait(0.2);
     }
+    // the train stays at B with the rejected crate still on board
     human.faceTowards(stopFrame.x, stopFrame.z);
     yield wait(0.6);
-
-    // back it goes with the rejected crate
-    this.stopAt = null;
-    this.reverse = true;
-    this.hold = false;
-    this.cruise = -this.cruiseFor(7) * 0.6;
-    yield until(() => train.s < world.stopS - 55);
-    this.frozen = true;
   }
 
   /* ---------------- Building blocks ---------------- */
@@ -683,7 +677,7 @@ export class Director implements Controls {
     const fast = this.cruiseFor(6);
     const slow = this.cruiseFor(2) * 0.9;
     const speedK = clamp01((Math.abs(train.speed) - slow) / (fast - slow));
-    rig.speedK = this.phase === PHASE_COUNT - 1 ? 0 : speedK;
+    rig.speedK = speedK;
 
     train.update(dt);
     human.update(dt);

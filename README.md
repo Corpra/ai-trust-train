@@ -8,34 +8,34 @@ Built with Three.js, Vite and TypeScript. No framework, no external 3D assets, n
 - Swedish: `/sv/` (reached by direct link only)
 - The phase is in the URL hash, e.g. `/en/#4`, so links and refreshes keep their place.
 
-## The nine phases
+## The eight phases
 
-Every phase runs on the same track from A to B and plays once; a splash panel ("Phase 3 · Adding ADO/Confluence/Jira") introduces it, and a Replay button appears when it has finished. Guardrails earned in one phase stay for the next.
+Every phase runs on the same track from A to B and plays once; a splash panel ("Phase 3 · ADO/Confluence/Jira") introduces it, and a Replay button appears when it has finished. Guardrails earned in one phase stay for the next.
 
 | # | Panel | What you see |
 |---|---|---|
 | 0 | Keeping the AI on the rails | Title panel |
 | 1 | Chat bot | A muddy path, no rails. The human pushes the loco by hand, knees and elbows working, and gets a quarter of the way |
-| 2 | Adding the codebase | Rails sweep in, the loco gains a code plate, the human climbs into the cab. Wrong fork at the switch, derails at the curve and the gap, each fixed by hand |
-| 3 | Adding ADO/Confluence/Jira | The loco gains a context plate and an antenna. The switch is taken correctly; the curve and the gap still derail |
+| 2 | Desktop app | Rails sweep in, the loco gains a code plate, the human climbs into the cab. Wrong fork at the switch, derails at the curve and the gap, each fixed by hand |
+| 3 | ADO/Confluence/Jira | The loco gains a context plate and an antenna. The switch is taken correctly; the curve and the gap still derail |
 | 4 | Iterative guardrails | Each derail is fixed and gets a guardrail: a fence on the curve, a bridge plate over the gap |
 | 5 | Increase speed | Faster. The curve guardrail is not enough at this speed: the train tips over it, is fixed, and the guardrail is reinforced. The bridge holds |
 | 6 | Smooth ride | Full speed, every guardrail flashes as the train passes |
 | 7 | Self-driving train | The human hands over a ticket at A and waits at B. Crates land on the cart along the way; at B two pass and one is sent back |
-| 8 | Trust is built, not given | A wide view of the whole track with its guardrails |
 
 ## Controls
 
 | Key | Action |
 |---|---|
-| → ␣ ⏎ PageDown, click | Next phase (during a splash: start the phase now) |
+| ␣, click on the splash | Start the train (during a splash: dismiss it now) |
+| → ⏎ PageDown, click | Next phase (during a splash: dismiss it now) |
 | ← PageUp Backspace | Previous phase |
-| 0–8, Home, End | Jump to a phase |
+| 0–7, Home, End | Jump to a phase |
 | R | Replay the current phase |
 | B | Hide or show the text column |
 | F | Fullscreen |
 
-On phones, tap the right or left third of the scene to move between phases.
+Every phase opens idle after its splash and waits for ␣. On phones, tap the right or left third of the scene to move between phases and the middle third to start the train.
 
 ## Develop
 

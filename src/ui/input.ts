@@ -6,6 +6,8 @@ export interface Controls {
   prev(): void;
   goTo(n: number): void;
   replay(): void;
+  /** Start the current phase from its idle state (space). */
+  start(): void;
 }
 
 export function parseHash(): number | null {
@@ -29,9 +31,12 @@ export function bindInput(c: Controls, hud: Hud, canvas: HTMLCanvasElement): voi
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     switch (e.key) {
+      case ' ':
+        e.preventDefault();
+        c.start();
+        break;
       case 'ArrowRight':
       case 'ArrowDown':
-      case ' ':
       case 'Enter':
       case 'PageDown':
         e.preventDefault();
@@ -63,7 +68,7 @@ export function bindInput(c: Controls, hud: Hud, canvas: HTMLCanvasElement): voi
         toggleFullscreen();
         break;
       default:
-        if (/^[0-8]$/.test(e.key)) c.goTo(Number(e.key));
+        if (/^[0-7]$/.test(e.key)) c.goTo(Number(e.key));
     }
   });
 
@@ -71,14 +76,15 @@ export function bindInput(c: Controls, hud: Hud, canvas: HTMLCanvasElement): voi
   hud.onPrev = () => c.prev();
   hud.onGoTo = (n) => c.goTo(n);
   hud.onReplay = () => c.replay();
-  hud.onSplashClick = () => c.next();
+  hud.onSplashClick = () => c.start();
 
-  // Phones: tap the right or left third of the scene to navigate.
+  // Phones: tap the right or left third of the scene to navigate, the middle to start the phase.
   canvas.addEventListener('pointerup', (e) => {
     if (e.pointerType !== 'touch') return;
     const x = e.clientX / innerWidth;
     if (x > 0.66) c.next();
     else if (x < 0.34) c.prev();
+    else c.start();
   });
 
   addEventListener('hashchange', () => {

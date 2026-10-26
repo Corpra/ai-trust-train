@@ -33,6 +33,7 @@ export class Hud {
   private readonly splashSub: HTMLElement;
   private readonly splashHint: HTMLElement;
   private readonly dipEl: HTMLElement;
+  private readonly startHint: HTMLElement;
   private overlayHidden = false;
 
   /** True while the panel covers the scene (or is sliding in). */
@@ -121,8 +122,9 @@ export class Hud {
     this.splash.addEventListener('click', () => this.onSplashClick?.());
 
     this.dipEl = el('div', 'dip');
+    this.startHint = el('div', 'start-hint', t.startHint);
 
-    this.root.append(this.overlay, this.nav, dial, this.dipEl, this.splash);
+    this.root.append(this.overlay, this.nav, dial, this.startHint, this.dipEl, this.splash);
     document.body.append(this.root);
     this.setTrust(0);
   }
@@ -154,6 +156,11 @@ export class Hud {
     this.nav.classList.toggle('done', on);
   }
 
+  /** Shows the "space to start" hint while the scene waits in idle. */
+  setIdle(on: boolean): void {
+    this.startHint.classList.toggle('on', on);
+  }
+
   toggleOverlay(): void {
     this.overlayHidden = !this.overlayHidden;
     this.overlay.classList.toggle('hidden', this.overlayHidden);
@@ -161,7 +168,7 @@ export class Hud {
 
   private setSplashText(n: number): void {
     const p = this.t.phases[n];
-    const numbered = n > 0 && n < PHASE_COUNT - 1;
+    const numbered = n > 0;
     this.splashNum.textContent = numbered ? `${this.t.phase} ${n}` : '';
     this.splashNum.classList.toggle('hidden', !numbered);
     this.splashSub.textContent = p.title;

@@ -162,6 +162,25 @@ canvas {
   animation: popIn 0.4s var(--pop);
 }
 
+/* "space to start" hint, shown while a phase waits in idle */
+.start-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translate(-50%, 6px);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.4s var(--pop);
+}
+
+.start-hint.on {
+  opacity: 0.8;
+  transform: translate(-50%, 0);
+}
+
 @keyframes popIn {
   from {
     transform: scale(0.7);
