@@ -93,7 +93,7 @@ export const TEXTS: Record<Lang, Texts> = {
     startHint: 'Mellanslag startar tåget',
     phases: [
       {
-        title: 'Tillitsstegen för AI',
+        title: 'Tillitsresan med AI',
         bullets: [],
       },
       {
